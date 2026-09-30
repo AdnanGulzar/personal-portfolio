@@ -123,6 +123,7 @@ export const projects: Project[] = [
     year: "2025",
     role: "Senior full stack engineer",
     accent: "#06b6d4",
+    image: "/projects/dealership-portal.webp",
     featured: true,
   },
   {
@@ -145,6 +146,29 @@ export const projects: Project[] = [
     role: "Senior frontend developer",
     accent: "#3b82f6",
     featured: true,
+  },
+  {
+    slug: "algorithm-simulator",
+    title: "Algorithm Simulator",
+    kicker: "Education · Interactive visualiser",
+    description:
+      "Watch algorithms run step by step — every read, write, swap, insert and traversal traced and animated as it happens.",
+    longDescription: [
+      "Algorithm Simulator is an interactive tool for learning how algorithms and data structures work. Pick a method, give it input data and step through its execution while the data, variables, pseudocode and a numbered trace of every operation update together.",
+      "It ships with 30 built-in methods across arrays, searching, sorting (bubble, insertion, selection, merge, quick and heap sort), recursion, strings, stacks, queues, linked lists, graphs (BFS and DFS) and trees. In Custom code mode you can edit the source and run your own version — reads, writes, push, pop, splice and slice are tracked automatically.",
+    ],
+    highlights: [
+      "30 built-in algorithms and data-structure operations",
+      "Custom code mode with automatic operation tracking",
+      "Play, pause, step back/forward, speed and step-size controls",
+      "Shareable URLs per method, plus Midnight, Light and Dracula themes",
+    ],
+    stack: ["JavaScript", "React", "Code instrumentation", "Vercel"],
+    year: "2026",
+    role: "Solo project",
+    accent: "#22d3ee",
+    liveUrl: "https://algo-simulator-murex.vercel.app/?mode=builtin&algo=push",
+    image: "/projects/algo-simulator.webp",
   },
   {
     slug: "food-delivery-storefront",

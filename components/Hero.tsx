@@ -10,6 +10,7 @@ import {
 } from "motion/react";
 import { ArrowRight, ArrowUpRight, Check, Zap } from "lucide-react";
 import { profile } from "@/lib/data";
+import { asset } from "@/lib/utils";
 
 const ease = [0.16, 1, 0.3, 1] as const;
 
@@ -197,7 +198,7 @@ export default function Hero() {
               <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />
             </a>
             {profile.resumeUrl && <a
-              href={profile.resumeUrl}
+              href={asset(profile.resumeUrl)}
               className="conic-border group inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-fg transition hover:text-white"
             >
               Download résumé

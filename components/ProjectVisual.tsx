@@ -1,5 +1,6 @@
 "use client";
 import { motion } from "motion/react";
+import { asset } from "@/lib/utils";
 
 /** Abstract, animated product preview tinted with the project's accent colour. */
 export default function ProjectVisual({ accent, variant = 0, image, alt = "" }: { accent: string; variant?: number; image?: string; alt?: string }) {
@@ -21,7 +22,7 @@ export default function ProjectVisual({ accent, variant = 0, image, alt = "" }: 
 
         {image && (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={image} alt={alt} loading="lazy" className="h-[calc(100%-33px)] w-full object-cover object-top" />
+          <img src={asset(image)} alt={alt} loading="lazy" className="h-[calc(100%-33px)] w-full object-cover object-top" />
         )}
 
         {!image && variant % 3 === 0 && (
