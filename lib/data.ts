@@ -22,7 +22,7 @@ export const profile = {
   resumeUrl: "", // e.g. "/resume.pdf" (put the file in /public) — empty hides the button
 };
 
-export const stats = [
+export const stats: { value: number; suffix: string; label: string; decimals?: number }[] = [
   { value: 4, suffix: "+", label: "Years experience" },
   { value: 10, suffix: "+", label: "Full stack apps delivered" },
   { value: 45, suffix: "%", label: "Faster annotation tooling" },
