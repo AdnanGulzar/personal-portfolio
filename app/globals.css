@@ -14,7 +14,7 @@
   --color-line-strong: rgb(255 255 255 / 0.14);
   --color-fg: #ededed;
   --color-muted: #a1a1a1;
-  --color-subtle: #6b6b6b;
+  --color-subtle: #8b93a7; /* ≥4.5:1 on the navy background (WCAG AA) */
 
   --animate-marquee: marquee 40s linear infinite;
   --animate-spin-slow: spin 14s linear infinite;
@@ -97,6 +97,13 @@ body {
   font-family: var(--font-mono);
   font-size: 0.85em;
   color: var(--color-fg);
+}
+
+/* Visible keyboard focus everywhere (mouse clicks don't show it) */
+:focus-visible {
+  outline: 2px solid #a855f7;
+  outline-offset: 3px;
+  border-radius: 6px;
 }
 
 ::selection {

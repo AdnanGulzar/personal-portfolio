@@ -55,9 +55,13 @@ export default function Analytics() {
 
   const choose = (c: "granted" | "denied") => {
     try { localStorage.setItem(KEY, c); } catch { /* storage blocked */ }
-    if (c === "denied" && consent === "granted") {
-      // turn tracking off immediately for an already-loaded tag
+    if (c === "denied") {
+      // turn tracking off immediately for an already-loaded tag, and remove GA's cookies
       window.gtag?.("consent", "update", { analytics_storage: "denied" });
+      const host = location.hostname.replace(/^www\./, "");
+      document.cookie.split(";").map((x) => x.split("=")[0].trim()).filter((n) => n.startsWith("_ga")).forEach((n) => {
+        for (const domain of ["", `; domain=.${host}`]) document.cookie = `${n}=; Max-Age=0; path=/${domain}`;
+      });
     }
     setConsent(c);
   };
@@ -72,8 +76,9 @@ export default function Analytics() {
           <Script id="ga-init" strategy="afterInteractive">
             {`window.dataLayer = window.dataLayer || [];
 function gtag(){dataLayer.push(arguments);}
+gtag('consent', 'default', { analytics_storage: 'denied', ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied' });
+gtag('consent', 'update', { analytics_storage: 'granted' });
 gtag('js', new Date());
-gtag('consent', 'default', { analytics_storage: 'granted', ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied' });
 gtag('config', '${GA_ID}');`}
           </Script>
         </>

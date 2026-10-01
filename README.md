@@ -42,7 +42,7 @@ Already built in — just add your IDs:
 
 **Google Analytics:** create a GA4 property → Admin → Data streams → Web → copy the Measurement ID (`G-…`). Add it as a repo variable `GA_MEASUREMENT_ID` (Settings → Secrets and variables → Actions → **Variables**) and redeploy. Locally, set `NEXT_PUBLIC_GA_ID` in `.env.local`. GA only loads after a visitor clicks *Accept*. Real-user LCP / INP / CLS / FCP / TTFB arrive as GA events of the same name.
 
-**Google Search Console:** add a **URL prefix** property for the live URL (including `/personal-portfolio-/` while it's a project site) → choose *HTML tag* → copy only the `content="…"` value → save it as repo variable `GSC_VERIFICATION` → redeploy → click *Verify*. Then **Sitemaps** → submit `sitemap.xml`.
+**Google Search Console:** add a **Domain** property for `adnangul.com` (verify with the DNS TXT record in GoDaddy), or a **URL prefix** property with the *HTML tag* method → copy only the `content="…"` value → save it as repo variable `GSC_VERIFICATION` → redeploy → click *Verify*. Then **Sitemaps** → submit `sitemap.xml`.
 
 **Check previews:** LinkedIn [Post Inspector](https://www.linkedin.com/post-inspector/) (also refreshes LinkedIn's cache) · [opengraph.xyz](https://www.opengraph.xyz) · Google [Rich Results Test](https://search.google.com/test/rich-results).
 

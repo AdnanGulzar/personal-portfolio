@@ -60,22 +60,32 @@ export default function Skills() {
   const group = skillGroups.find((g) => g.id === active)!;
 
   return (
-    <section id="skills" className="relative border-y border-line bg-surface/50">
+    <section id="skills" className="relative overflow-x-clip border-y border-line bg-surface/50">
       <div aria-hidden className="absolute inset-0 bg-grid opacity-70" />
       <div className="relative mx-auto grid max-w-6xl gap-14 px-6 py-28 lg:grid-cols-[1fr_1.2fr]">
         <div>
           <SectionHeading eyebrow="Skills" title="A full stack," accent="end to end" description="Comfortable across the whole request lifecycle — from the button a user taps to the query it runs." />
           <Reveal delay={0.2}>
-            <div role="tablist" className="mt-10 inline-flex rounded-full border border-line bg-black p-1">
-              {skillGroups.map((g) => {
+            <div role="tablist" aria-label="Skill areas" className="mt-10 inline-flex rounded-full border border-line bg-black p-1">
+              {skillGroups.map((g, gi) => {
                 const Icon = icons[g.id as keyof typeof icons];
                 const on = g.id === active;
                 return (
                   <button
                     key={g.id}
+                    id={`skill-tab-${g.id}`}
                     role="tab"
                     aria-selected={on}
+                    aria-controls="skill-panel"
+                    tabIndex={on ? 0 : -1}
                     onClick={() => setActive(g.id)}
+                    onKeyDown={(e) => {
+                      // arrow keys move between tabs (WAI-ARIA tabs pattern)
+                      if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+                      const next = skillGroups[(gi + (e.key === "ArrowRight" ? 1 : -1) + skillGroups.length) % skillGroups.length];
+                      setActive(next.id);
+                      document.getElementById(`skill-tab-${next.id}`)?.focus();
+                    }}
                     className={`relative flex items-center gap-2 rounded-full px-4 py-2 text-sm transition-colors ${on ? "text-black" : "text-muted hover:text-white"}`}
                   >
                     {on && <motion.span layoutId="skill-tab" className="absolute inset-0 rounded-full bg-white" transition={{ type: "spring", stiffness: 380, damping: 30 }} />}
@@ -93,6 +103,10 @@ export default function Skills() {
           <AnimatePresence mode="wait">
             <motion.div
               key={group.id}
+              id="skill-panel"
+              role="tabpanel"
+              aria-labelledby={`skill-tab-${group.id}`}
+              tabIndex={0}
               initial={{ opacity: 0, y: 16, filter: "blur(6px)" }}
               animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
               exit={{ opacity: 0, y: -16, filter: "blur(6px)" }}

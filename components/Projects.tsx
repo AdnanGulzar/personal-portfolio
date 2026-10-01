@@ -30,12 +30,12 @@ export default function Projects() {
                   aria-label={`${p.title} case study`}
                 >
                   <div className={i < 2 ? "h-64" : "h-48"}>
-                    <ProjectVisual accent={p.accent} variant={i} image={p.image} alt={`${p.title} screenshot`} />
+                    <ProjectVisual accent={p.accent} variant={i} image={p.image} stack={p.stack} alt={`${p.title} screenshot`} />
                   </div>
                   <div className="flex flex-1 flex-col px-1 pt-6">
                     <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <p className="font-mono text-xs uppercase tracking-wider text-subtle">
+                      <div className="min-w-0">
+                        <p title={p.kicker} className="truncate font-mono text-xs uppercase tracking-wider text-subtle">
                           {p.kicker}
                         </p>
                         <h3 className="mt-2 text-xl font-semibold tracking-tight text-white">

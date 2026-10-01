@@ -141,21 +141,22 @@ export default function Contact() {
 
           <Reveal delay={0.15}>
             <TiltCard className="p-6 sm:p-8">
-            <form onSubmit={submit} className="space-y-4">
+            <form onSubmit={submit} method="post" action="https://api.web3forms.com/submit" className="space-y-4">
+              {accessKey && <input type="hidden" name="access_key" value={accessKey} />}
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="block">
                   <span className="mb-2 block text-xs text-muted">Name</span>
-                  <input required className={input} placeholder="Jane Doe" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+                  <input required name="name" autoComplete="name" minLength={2} maxLength={100} className={input} placeholder="Jane Doe" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
                 </label>
                 <label className="block">
                   <span className="mb-2 block text-xs text-muted">Email</span>
-                  <input required type="email" className={input} placeholder="jane@company.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+                  <input required type="email" name="email" autoComplete="email" maxLength={254} pattern="[^@\s]+@[^@\s]+\.[^@\s]{2,}" title="Enter a full email address, like jane@company.com" className={input} placeholder="jane@company.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
                 </label>
               </div>
               <input type="checkbox" name="botcheck" className="hidden" tabIndex={-1} autoComplete="off" aria-hidden />
               <label className="block">
                 <span className="mb-2 block text-xs text-muted">Message</span>
-                <textarea required rows={5} className={`${input} resize-none`} placeholder="Tell me about your project, timeline and budget…" value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} />
+                <textarea required name="message" rows={5} minLength={10} maxLength={5000} className={`${input} resize-none`} placeholder="Tell me about your project, timeline and budget…" value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} />
               </label>
               <div className="flex items-center justify-between gap-4 pt-2">
                 <p className="text-xs text-subtle" aria-live="polite">

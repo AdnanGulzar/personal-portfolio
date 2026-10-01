@@ -9,8 +9,9 @@ export default function Reveal({ delay = 0, y = 24, blur = true, children, ...re
     <motion.div
       initial={{ opacity: 0, y, filter: blur ? "blur(8px)" : "none" }}
       whileInView={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-      viewport={{ once: true, margin: "-80px" }}
-      transition={{ duration: 0.8, delay, ease: [0.16, 1, 0.3, 1] }}
+      // start just before it enters the screen, so content is already there after a nav jump
+      viewport={{ once: true, margin: "0px 0px 120px 0px" }}
+      transition={{ duration: 0.55, delay: Math.min(delay, 0.2), ease: [0.16, 1, 0.3, 1] }}
       {...rest}
     >
       {children}

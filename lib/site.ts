@@ -3,8 +3,8 @@
 //  Values come from env vars (set in .env.local or the GitHub Actions workflow).
 // ─────────────────────────────────────────────────────────────
 
-/** Origin the site is served from, e.g. "https://adnangulzar.github.io" (no trailing slash). */
-export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://adnangulzar.github.io").replace(/\/$/, "");
+/** Origin the site is served from, e.g. "https://adnangul.com" (no trailing slash). */
+export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://adnangul.com").replace(/\/$/, "").replace(/^http:\/\//, "https://");
 
 /** GitHub Pages project path, e.g. "/personal-portfolio-" (empty for a root / user site). */
 export const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "";

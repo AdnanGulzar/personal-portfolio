@@ -20,18 +20,40 @@ export default function Nav() {
     setHidden(y > prev && y > 400 && !open);
   });
 
-  // Highlight the section currently in view
+  // Esc closes the mobile menu
   useEffect(() => {
-    const ids = navLinks.map((l) => l.href.slice(1));
-    const obs = new IntersectionObserver(
-      (entries) => entries.forEach((e) => e.isIntersecting && setActive(`#${e.target.id}`)),
-      { rootMargin: "-45% 0px -50% 0px" }
-    );
-    ids.forEach((id) => {
-      const el = document.getElementById(id);
-      if (el) obs.observe(el);
-    });
-    return () => obs.disconnect();
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  // Highlight the section currently being read: the last one whose top has passed 40% of the
+  // viewport. Above the first section (hero / about) nothing is highlighted; at the very bottom, the last one is.
+  useEffect(() => {
+    const sections = navLinks
+      .map((l) => document.getElementById(l.href.slice(1)))
+      .filter((el): el is HTMLElement => !!el);
+    if (!sections.length) return;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const line = window.innerHeight * 0.4;
+      const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4;
+      let current = "";
+      for (const el of sections) if (el.getBoundingClientRect().top <= line) current = `#${el.id}`;
+      if (atBottom) current = `#${sections[sections.length - 1].id}`;
+      setActive(current);
+    };
+    const onScroll = () => { if (!frame) frame = requestAnimationFrame(update); };
+    update();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+      cancelAnimationFrame(frame);
+    };
   }, []);
 
   return (
@@ -82,7 +104,7 @@ export default function Nav() {
           </a>
           <button
             onClick={() => setOpen((o) => !o)}
-            className="grid size-9 place-items-center rounded-full border border-line text-fg md:hidden"
+            className="grid size-11 place-items-center rounded-full border border-line text-fg md:hidden"
             aria-label="Toggle menu"
             aria-expanded={open}
           >

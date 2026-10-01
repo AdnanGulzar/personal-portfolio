@@ -9,7 +9,7 @@ export default function CookieSettings() {
     <button
       type="button"
       onClick={() => window.dispatchEvent(new Event(OPEN_CONSENT_EVENT))}
-      className="text-xs text-subtle underline-offset-4 transition hover:text-white hover:underline"
+      className="inline-flex min-h-11 items-center px-3 text-xs text-subtle underline-offset-4 transition hover:text-white hover:underline"
     >
       Cookie settings
     </button>

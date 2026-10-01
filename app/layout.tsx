@@ -30,6 +30,7 @@ export const metadata: Metadata = {
   },
   ...(GSC_VERIFICATION ? { verification: { google: GSC_VERIFICATION } } : {}),
   formatDetection: { telephone: false, email: false, address: false },
+  referrer: "strict-origin-when-cross-origin",
 };
 
 export const viewport: Viewport = { themeColor: "#050b1f" };
@@ -38,12 +39,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className="grain font-sans">
+        <a href="#main" className="sr-only rounded-full bg-white px-4 py-2 text-sm font-medium text-black focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100]">
+          Skip to content
+        </a>
         <JsonLd data={[personJsonLd(), websiteJsonLd()]} />
         <Providers>
           <ScrollProgress />
           <CursorGlow />
           <Nav />
-          <main>{children}</main>
+          <main id="main" tabIndex={-1} className="outline-none">{children}</main>
           <Footer />
           <Analytics />
         </Providers>

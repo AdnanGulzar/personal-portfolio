@@ -78,7 +78,7 @@ export default async function ProjectPage({ params }: Props) {
 
         <Reveal delay={0.25} className="mt-12">
           <SpotlightCard color={hexToRgb(p.accent)} tilt={false} className="p-3">
-            <div className="h-72 sm:h-96"><ProjectVisual accent={p.accent} variant={idx} image={p.image} alt={`${p.title} screenshot`} /></div>
+            <div className="h-72 sm:h-96"><ProjectVisual accent={p.accent} variant={idx} image={p.image} stack={p.stack} alt={`${p.title} screenshot`} /></div>
           </SpotlightCard>
         </Reveal>
 

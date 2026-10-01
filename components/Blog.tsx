@@ -17,7 +17,7 @@ export default function Blog() {
           description="Interactive write-ups on the things I work with every day. Drag, type and click your way through the ideas."
         />
         <Reveal delay={0.2}>
-          <Link href="/blog/" className="group inline-flex items-center gap-2 text-sm text-muted transition hover:text-white">
+          <Link href="/blog/" className="group inline-flex min-h-11 items-center gap-2 text-sm text-muted transition hover:text-white">
             All posts <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />
           </Link>
         </Reveal>

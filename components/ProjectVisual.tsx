@@ -3,7 +3,7 @@ import { motion } from "motion/react";
 import { asset } from "@/lib/utils";
 
 /** Abstract, animated product preview tinted with the project's accent colour. */
-export default function ProjectVisual({ accent, variant = 0, image, alt = "" }: { accent: string; variant?: number; image?: string; alt?: string }) {
+export default function ProjectVisual({ accent, variant = 0, image, alt = "", stack = [] }: { accent: string; variant?: number; image?: string; alt?: string; stack?: string[] }) {
   const bars = [38, 62, 45, 80, 56, 92, 70, 84, 60, 96, 74, 88];
   return (
     <div className="relative h-full min-h-[200px] overflow-hidden rounded-2xl border border-line bg-black">
@@ -43,7 +43,8 @@ export default function ProjectVisual({ accent, variant = 0, image, alt = "" }: 
 
         {!image && variant % 3 === 1 && (
           <div className="space-y-2.5 p-4 font-mono text-[11px]">
-            {["POST /v1/emails", "200 OK · 38ms", "webhook: delivered", "webhook: opened"].map((t, i) => (
+            {/* no screenshot yet: show the project's own stack rather than made-up text */}
+            {(stack.length ? stack.slice(0, 4) : ["Frontend", "API", "Database", "Deploy"]).map((t, i) => (
               <motion.div
                 key={t}
                 initial={{ opacity: 0, x: -12 }}
@@ -54,6 +55,7 @@ export default function ProjectVisual({ accent, variant = 0, image, alt = "" }: 
               >
                 <span className="size-1.5 rounded-full" style={{ background: accent }} />
                 <span className="text-muted">{t}</span>
+                <span className="text-subtle">✓</span>
                 <span className="ml-auto h-1.5 rounded-full bg-white/10" style={{ width: `${30 + i * 12}%` }} />
               </motion.div>
             ))}
