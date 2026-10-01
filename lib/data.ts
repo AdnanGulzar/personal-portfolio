@@ -366,5 +366,15 @@ export const navLinks = [
   { href: "#work", label: "Work" },
   { href: "#skills", label: "Skills" },
   { href: "#experience", label: "Experience" },
+  { href: "#blog", label: "Blog" },
   { href: "#contact", label: "Contact" },
 ];
+
+// Blog comments via giscus (GitHub Discussions). Fill these in from https://giscus.app
+// after enabling Discussions on the repo — comments stay hidden while they're empty.
+export const giscus = {
+  repo: "", // e.g. "AdnanGulzar/personal-portfolio-"
+  repoId: "",
+  category: "Announcements",
+  categoryId: "",
+};

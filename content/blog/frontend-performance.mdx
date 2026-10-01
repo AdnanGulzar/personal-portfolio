@@ -1,0 +1,81 @@
+A fast website isn't one that scores 100 in Lighthouse. It's one where **the content appears quickly, responds the instant you touch it, and doesn't jump around while you're reading**. Users can't see your bundle analyser, but they feel all three of those things within a second.
+
+This post walks through what actually makes a frontend feel fast, with live demos you can play with as you go. Most examples use React, but the ideas apply to any framework.
+
+## Measure what users feel
+
+Google boils "feels fast" down to three numbers called the **Core Web Vitals**. They're measured on real users' devices, and they affect search ranking. Drag the sliders to see how a page gets rated:
+
+<WebVitals />
+
+- **LCP** is about *loading*: how long until the biggest thing on screen (usually a hero image or headline) appears.
+- **INP** is about *responsiveness*: the delay between a click or keypress and the screen visibly reacting.
+- **CLS** is about *stability*: how much content shifts after it first appears (the "I tapped the wrong button because an ad loaded" problem).
+
+<Callout type="tip" title="Lab data vs field data">
+Lighthouse runs on your fast laptop with a fast connection. Your users are on a three-year-old Android phone on a train. Check real-user numbers in PageSpeed Insights or the Chrome UX Report, and test with CPU throttling turned on in DevTools.
+</Callout>
+
+## Ship less stuff
+
+The fastest byte is the one you never send. On most sites, the first page load is dominated by JavaScript and images, and both can usually shrink dramatically:
+
+<BundleChart />
+
+### Split your JavaScript
+
+Users don't need the code for the settings page, the chart library and the rich-text editor just to see the homepage. Load heavy pieces only when they're needed, with `next/dynamic` in Next.js or `React.lazy` and `Suspense` in plain React. Also check what you're importing: one careless `import _ from "lodash"` or a date library with every locale bundled can outweigh your entire app.
+
+### Images and fonts
+
+- Serve **WebP or AVIF**, at the size they're actually displayed. A 4000 px photo in a 400 px card is pure waste.
+- Add `loading="lazy"` to images below the fold, and `fetchpriority="high"` to the one hero image that *is* your LCP.
+- Always set `width` and `height` (or an aspect ratio) so the browser reserves space. This alone fixes most CLS.
+- Self-host fonts as **WOFF2**, use one variable font instead of six weights, and use `font-display: swap` so text is never invisible.
+
+## Stop re-rendering things that didn't change
+
+In React, when a component's state changes, it re-renders **and so do all its children**, whether their props changed or not. Usually that's cheap. When the children are expensive, it's the main reason typing feels laggy.
+
+Type in the box below with the expensive cards turned on, then flip on `React.memo`:
+
+<RenderDemo />
+
+`React.memo` tells React "skip this component if its props are the same as last time." Its two companions keep props *stable* so memo can work:
+
+- `useMemo` caches an expensive **calculation** (or an object/array you pass as a prop).
+- `useCallback` caches a **function** so a memoised child doesn't see a "new" `onClick` every render.
+
+<Callout type="warn" title="Don't memo everything">
+Memoisation has a cost too: memory, comparisons and harder-to-read code. Use the React DevTools Profiler to find components that are actually slow, and fix those. The React Compiler can now add most of this automatically.
+</Callout>
+
+### Keep typing responsive while heavy work happens
+
+Sometimes the work *is* necessary: filtering a big list, rendering a chart. React 18+ lets you mark that update as low priority, so the input stays instant and the slow part catches up a moment later. That's what `useDeferredValue` is for: React updates the input first and re-renders the slow part with the new value when it has a spare moment.
+
+`useTransition` does the same job when you control the state update yourself. And if the list is genuinely huge (thousands of rows on screen), **virtualise** it with a library like TanStack Virtual, so only the rows in view are rendered at all.
+
+## Don't do work on every keystroke
+
+Search-as-you-type is a classic trap: fire an API request on every key and a user typing "keyboard" sends eight requests, most of which come back in the wrong order. Type quickly in this box:
+
+<DebounceDemo />
+
+- **Debounce** waits until the user *stops* for a moment, then fires once. Ideal for search boxes and autosave.
+- **Throttle** fires at most once per interval, however often the event happens. Ideal for scroll and resize handlers.
+
+## A practical checklist
+
+When a page feels slow, work through this list roughly in order:
+
+1. **Measure first.** Field data for Core Web Vitals, then the DevTools Performance panel with 4× CPU throttling.
+2. **Fix LCP.** Optimise and prioritise the hero image, preload the critical font, render the main content on the server (SSR or static).
+3. **Cut JavaScript.** Analyse the bundle, split routes and heavy components, replace bloated dependencies.
+4. **Fix CLS.** Reserve space for images, ads and embeds, and avoid inserting content above what the user is reading.
+5. **Fix INP.** Profile interactions, memoise expensive subtrees, defer heavy updates, debounce chatty handlers, and break up long tasks.
+6. **Cache aggressively.** Long-lived cache headers on hashed assets, a CDN in front of everything static.
+
+> Performance isn't a feature you add at the end. It's a budget you spend on every dependency, image and re-render.
+
+Pick one metric, fix the biggest offender, and measure again. Small, repeated wins add up to a site that simply feels good to use, which is the whole point.

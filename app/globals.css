@@ -69,6 +69,36 @@ body {
   overflow-x: hidden;
 }
 
+/* Flash used by the blog's re-render demo */
+@keyframes render-flash {
+  from { background: rgb(245 158 11 / 0.18); border-color: rgb(245 158 11 / 0.8); }
+  to { background: transparent; }
+}
+
+/* ── Blog code blocks (rehype-pretty-code + Shiki) ─────────── */
+/* Plain code block: the Shiki theme supplies the background and colours */
+[data-rehype-pretty-code-figure] {
+  margin-top: 1.5rem;
+}
+[data-rehype-pretty-code-figure] pre {
+  overflow-x: auto;
+  border-radius: 0.5rem;
+  padding: 1rem 3.25rem 1rem 1rem; /* right side leaves room for the copy button */
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+}
+/* inline `code` */
+:not(pre) > code {
+  border: 1px solid var(--color-line);
+  border-radius: 0.375rem;
+  background: rgb(255 255 255 / 0.05);
+  padding: 0.1em 0.4em;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  color: var(--color-fg);
+}
+
 ::selection {
   background: rgb(255 255 255 / 0.9);
   color: #000;

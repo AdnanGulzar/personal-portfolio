@@ -1,6 +1,7 @@
 import { profile } from "@/lib/data";
 import { Code } from "lucide-react";
 import { XIcon } from "./Icons";
+import CookieSettings from "./CookieSettings";
 
 export default function Footer() {
   const socials = [
@@ -13,6 +14,7 @@ export default function Footer() {
         <p className="text-sm text-subtle">
           © {new Date().getFullYear()} {profile.name}. Built with Next.js, statically generated.
         </p>
+        <CookieSettings />
         {socials.length > 0 && <div className="flex items-center gap-2">
           {socials.map(({ href, label, Icon }) => (
             <a

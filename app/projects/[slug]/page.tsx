@@ -8,6 +8,8 @@ import Reveal from "@/components/Reveal";
 import ProjectVisual from "@/components/ProjectVisual";
 import SpotlightCard from "@/components/SpotlightCard";
 import { GitHubIcon } from "@/components/Icons";
+import JsonLd from "@/components/JsonLd";
+import { pageMeta, breadcrumbJsonLd } from "@/lib/seo";
 
 // Pre-render one static page per project at build time (SSG)
 export const dynamicParams = false;
@@ -20,7 +22,9 @@ type Props = { params: Promise<{ slug: string }> };
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const p = projects.find((x) => x.slug === slug);
-  return p ? { title: p.title, description: p.description } : {};
+  return p
+    ? pageMeta({ title: p.title, description: p.description, path: `/projects/${p.slug}/`, imageAlt: p.title, keywords: p.stack })
+    : {};
 }
 
 export default async function ProjectPage({ params }: Props) {
@@ -32,6 +36,7 @@ export default async function ProjectPage({ params }: Props) {
 
   return (
     <article className="relative overflow-hidden pt-36 pb-24">
+      <JsonLd data={breadcrumbJsonLd([{ name: "Home", path: "/" }, { name: "Work", path: "/#work" }, { name: p.title, path: `/projects/${p.slug}/` }])} />
       <div aria-hidden className="absolute inset-0 bg-grid" />
       <div aria-hidden className="absolute left-1/2 top-0 h-[500px] w-[900px] -translate-x-1/2 rounded-full blur-[140px]" style={{ background: `${p.accent}22` }} />
 

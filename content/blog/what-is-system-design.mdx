@@ -1,0 +1,127 @@
+Every app starts the same way: one server, one database, a handful of users. Then it works, people tell their friends, and one Monday morning the dashboard turns red. **System design** is the work of deciding, ideally before that Monday, how the pieces of an application fit together so it keeps working as traffic, data and the team grow.
+
+It isn't about memorising diagrams. It's about understanding a small set of building blocks well enough to know *which one fixes which problem*, and what each one costs you.
+
+## Two kinds of requirements
+
+Before drawing a single box, pin down what the system has to do:
+
+- **Functional requirements**: what it does. *Users can upload a photo. Followers see it in their feed.*
+- **Non-functional requirements**: how well it does it. *Feeds load in under 200 ms. We survive a data-centre outage. We handle 10,000 uploads a second at peak.*
+
+Almost every design decision is driven by the non-functional list. A photo app for a family of five and a photo app for fifty million people have the same features and completely different architectures.
+
+<Callout type="tip" title="Ask before you design">
+In interviews and in real projects alike, the strongest first move is to ask questions: how many users, how much data, how fast, how reliable. The answers decide the architecture.
+</Callout>
+
+## Start with one server and break it
+
+Here's a toy model of a web app. Push the traffic up and watch what happens with a single app server. Then add servers (which brings in a load balancer) and switch on a cache.
+
+<ScalingSimulator />
+
+A few things to notice:
+
+1. **Latency doesn't grow in a straight line.** Things look fine until a server is about 70–80% busy, and then response times shoot up. Queues form faster than they drain.
+2. **Adding app servers moves the bottleneck.** With enough servers, the *database* becomes the thing that's on fire.
+3. **The cache helps the database far more than it helps the app servers.** With 80% of reads served from memory, the database only sees one in five requests.
+
+That's system design in miniature: find the bottleneck, relieve it, find the next one.
+
+## The building blocks
+
+### Load balancers
+
+A load balancer sits in front of your app servers and spreads incoming requests across them. It's what makes **horizontal scaling** (adding more machines) possible, as opposed to **vertical scaling** (buying a bigger machine).
+
+| | Vertical scaling | Horizontal scaling |
+|---|---|---|
+| How | Bigger CPU, more RAM | More machines behind a load balancer |
+| Limit | The biggest machine you can buy | Practically none |
+| Failure | One machine dies, everything dies | One machine dies, others carry on |
+| Catch | Simple, no code changes | Servers must be **stateless** |
+
+"Stateless" means a server doesn't keep anything important in its own memory between requests. Sessions go into a shared store like Redis, and uploaded files go to object storage like S3. Then it doesn't matter which server a request lands on.
+
+### Caching
+
+A cache keeps the answers to expensive questions somewhere fast, usually in memory. The most common pattern is **cache-aside**: check the cache first; on a miss, read from the database and save the result in the cache for next time.
+
+The hard part isn't adding a cache, it's **invalidation**: making sure users don't see stale data after it changes. Short expiry times (TTL), deleting the key on every write, or both, are the usual answers.
+
+To see why caches matter so much, look at how wildly the cost of "getting some data" varies depending on where it lives:
+
+<LatencyNumbers />
+
+Turn on human scale. If reading from memory took a couple of minutes, a database query would take about two months and a request across the Atlantic nearly five years. Most performance work is about moving data closer to where it's needed.
+
+### Databases: SQL or NoSQL?
+
+| | Relational (PostgreSQL, MySQL) | NoSQL (MongoDB, DynamoDB, Cassandra) |
+|---|---|---|
+| Data shape | Tables with a fixed schema | Documents, key–value pairs, wide columns |
+| Strength | Joins, transactions, strong consistency | Flexible schema, easy horizontal scaling |
+| Good for | Orders, payments, anything relational | Feeds, events, catalogues, huge write volumes |
+
+There's no universally right answer. Plenty of large systems use both: PostgreSQL for money, a document store for activity feeds.
+
+When one database server isn't enough, you have two main tools:
+
+- **Replication**: copies of the database on several machines. Writes go to the primary, reads are spread across the replicas. Great for read-heavy apps.
+- **Sharding**: splitting the data itself across machines (users A–M on one, N–Z on another). This scales writes too, but makes cross-shard queries and transactions much harder.
+
+### Message queues
+
+Some work doesn't need to happen while the user waits: sending emails, resizing images, generating reports, importing a 50,000-row spreadsheet. A **queue** lets the API accept the job instantly and hand it to background workers (BullMQ on Redis is a popular choice in Node.js).
+
+Queues also absorb spikes. If 10,000 jobs arrive in a minute, workers chew through them at their own pace instead of the whole system falling over.
+
+### CDNs
+
+A content delivery network caches static files (images, JS, CSS, sometimes whole pages) on servers around the world, so a user in Karachi isn't downloading your bundle from Virginia. It's usually the cheapest performance win available.
+
+## The trade-off you can't escape: CAP
+
+Once data lives on more than one machine, the network between them *will* fail at some point. The **CAP theorem** says that during such a split (a *partition*), a distributed system has to choose between **consistency** and **availability**.
+
+<CapTheorem />
+
+In practice the question is never "which two letters", it's "*for this particular data*, what's worse: a user seeing an error, or a user seeing something slightly out of date?" A bank balance and a like count deserve different answers, even in the same app.
+
+## A repeatable way to approach any design
+
+Whether it's an interview question or a real feature, this sequence works:
+
+1. **Clarify requirements.** Functional and non-functional. Write the numbers down.
+2. **Estimate the scale.** A quick back-of-the-envelope calculation tells you which problems are real.
+3. **Sketch the high-level design.** Clients, API, services, data stores, and the arrows between them.
+4. **Go deep on the hard parts.** Data model, the hottest endpoint, the riskiest dependency.
+5. **Find the bottlenecks and failure points.** What breaks first at 10× the traffic? What happens when the cache or a region goes down?
+
+### A quick estimate
+
+Say a URL shortener expects **100 million new links a month**, and each link is read about 100 times.
+
+- Writes: 100M ÷ (30 × 86,400 s) ≈ **40 per second**
+- Reads: 40 × 100 ≈ **4,000 per second**, more at peak
+- Storage: 100M × 500 bytes ≈ **50 GB a month**, about 3 TB over five years
+
+Instantly you know it's a read-heavy system. A cache in front of the database will do most of the work, and the write path can stay simple. Two minutes of arithmetic just shaped the whole design.
+
+<Callout type="info" title="Keep it simple until it hurts">
+Most products never need sharding, microservices or multi-region failover. Start with the simplest design that meets the requirements, measure it, and add complexity only where the numbers say it's needed.
+</Callout>
+
+## Wrapping up
+
+System design comes down to a handful of ideas used over and over:
+
+- **Find the bottleneck** before you fix anything.
+- **Scale horizontally** by keeping servers stateless and putting a load balancer in front.
+- **Cache** the expensive, frequently read things, and plan how to invalidate them.
+- **Pick the database** for your data's shape and consistency needs, then replicate or shard when you outgrow it.
+- **Push slow work to queues** so users never wait on it.
+- **Accept trade-offs** consciously. Every choice buys something and costs something else.
+
+Next time an app slows down, try asking "where's the queue forming?" before reaching for a bigger server. That question is most of system design.

@@ -28,6 +28,24 @@ Word-by-word blur-in headline · typing code window with 3D mouse tilt · floati
 
 `npm run build` outputs plain HTML/CSS/JS in `out/` — host it anywhere static: Vercel, Netlify, GitHub Pages, Cloudflare Pages or a Render static site (publish directory `out`).
 
+## SEO, social previews & analytics
+
+Already built in — just add your IDs:
+
+| What | Where it lives |
+|---|---|
+| Titles, descriptions, canonical URLs, Open Graph + X cards | `lib/seo.ts` (`pageMeta`), used by every page |
+| Social preview images (1200×630 PNG) | `lib/og.tsx`, generated per page at `…/og.png` |
+| Structured data (Person, WebSite, BlogPosting, Breadcrumbs) | `lib/seo.ts` → `components/JsonLd.tsx` |
+| `sitemap.xml` / `robots.txt` | `app/sitemap.ts`, `app/robots.ts` |
+| Google Analytics 4 + Core Web Vitals, with a consent banner | `components/Analytics.tsx` |
+
+**Google Analytics:** create a GA4 property → Admin → Data streams → Web → copy the Measurement ID (`G-…`). Add it as a repo variable `GA_MEASUREMENT_ID` (Settings → Secrets and variables → Actions → **Variables**) and redeploy. Locally, set `NEXT_PUBLIC_GA_ID` in `.env.local`. GA only loads after a visitor clicks *Accept*. Real-user LCP / INP / CLS / FCP / TTFB arrive as GA events of the same name.
+
+**Google Search Console:** add a **URL prefix** property for the live URL (including `/personal-portfolio-/` while it's a project site) → choose *HTML tag* → copy only the `content="…"` value → save it as repo variable `GSC_VERIFICATION` → redeploy → click *Verify*. Then **Sitemaps** → submit `sitemap.xml`.
+
+**Check previews:** LinkedIn [Post Inspector](https://www.linkedin.com/post-inspector/) (also refreshes LinkedIn's cache) · [opengraph.xyz](https://www.opengraph.xyz) · Google [Rich Results Test](https://search.google.com/test/rich-results).
+
 ## Structure
 
 ```
