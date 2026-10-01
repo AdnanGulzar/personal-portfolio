@@ -38,9 +38,9 @@ Already built in — just add your IDs:
 | Social preview images (1200×630 PNG) | `lib/og.tsx`, generated per page at `…/og.png` |
 | Structured data (Person, WebSite, BlogPosting, Breadcrumbs) | `lib/seo.ts` → `components/JsonLd.tsx` |
 | `sitemap.xml` / `robots.txt` | `app/sitemap.ts`, `app/robots.ts` |
-| Google Analytics 4 + Core Web Vitals, with a consent banner | `components/Analytics.tsx` |
+| Google Analytics 4 + Core Web Vitals | `components/Analytics.tsx` |
 
-**Google Analytics:** create a GA4 property → Admin → Data streams → Web → copy the Measurement ID (`G-…`). Add it as a repo variable `GA_MEASUREMENT_ID` (Settings → Secrets and variables → Actions → **Variables**) and redeploy. Locally, set `NEXT_PUBLIC_GA_ID` in `.env.local`. GA only loads after a visitor clicks *Accept*. Real-user LCP / INP / CLS / FCP / TTFB arrive as GA events of the same name.
+**Google Analytics:** create a GA4 property → Admin → Data streams → Web → copy the Measurement ID (`G-…`). Add it as a repo variable `GA_MEASUREMENT_ID` (Settings → Secrets and variables → Actions → **Variables**) and redeploy. Locally, set `NEXT_PUBLIC_GA_ID` in `.env.local`. Real-user LCP / INP / CLS / FCP / TTFB arrive as GA events of the same name.
 
 **Google Search Console:** add a **Domain** property for `adnangul.com` (verify with the DNS TXT record in GoDaddy), or a **URL prefix** property with the *HTML tag* method → copy only the `content="…"` value → save it as repo variable `GSC_VERIFICATION` → redeploy → click *Verify*. Then **Sitemaps** → submit `sitemap.xml`.
 
