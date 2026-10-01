@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { profile } from "./data";
+import { experience, profile, skillGroups, type Project } from "./data";
 import { absoluteUrl, ogImage, SEO_KEYWORDS } from "./site";
 
 const siteName = `${profile.name} · ${profile.role}`;
@@ -52,26 +52,71 @@ export function pageMeta({
   };
 }
 
-// ── Structured data (JSON-LD) — helps Google show rich results ─────────
+// ── Structured data (JSON-LD) — helps Google rich results and AI answer engines (GEO) ─────────
+// Entities share stable @ids so search engines and LLMs connect the person, site and content.
 
-export const personJsonLd = () => ({
-  "@context": "https://schema.org",
-  "@type": "Person",
-  name: profile.name,
-  jobTitle: profile.role,
-  description: profile.summary,
-  url: absoluteUrl("/"),
-  image: absoluteUrl("/og.png"),
-  sameAs: Object.values(profile.socials).filter(Boolean),
-  knowsAbout: ["React", "Next.js", "TypeScript", "Node.js", "NestJS", "PostgreSQL", "Redis", "System design", "Frontend performance"],
-});
+const PERSON_ID = () => absoluteUrl("/#person");
+const WEBSITE_ID = () => absoluteUrl("/#website");
+const personRef = () => ({ "@id": PERSON_ID() });
+
+export const personJsonLd = () => {
+  const current = experience.find((e) => /present/i.test(e.period));
+  return {
+    "@context": "https://schema.org",
+    "@type": "Person",
+    "@id": PERSON_ID(),
+    name: profile.name,
+    jobTitle: profile.role,
+    description: profile.summary,
+    email: `mailto:${profile.email}`,
+    url: absoluteUrl("/"),
+    image: absoluteUrl("/og.png"),
+    sameAs: Object.values(profile.socials).filter(Boolean),
+    ...(current ? { worksFor: { "@type": "Organization", name: current.company, ...(current.url ? { url: current.url } : {}) } } : {}),
+    hasOccupation: {
+      "@type": "Occupation",
+      name: profile.role,
+      skills: skillGroups.flatMap((g) => g.skills.map((s) => s.name)).join(", "),
+    },
+    knowsAbout: ["React", "Next.js", "TypeScript", "Node.js", "NestJS", "PostgreSQL", "Redis", "BullMQ", "System design", "Frontend performance"],
+  };
+};
 
 export const websiteJsonLd = () => ({
   "@context": "https://schema.org",
   "@type": "WebSite",
+  "@id": WEBSITE_ID(),
   name: siteName,
   url: absoluteUrl("/"),
-  author: { "@type": "Person", name: profile.name },
+  inLanguage: "en",
+  author: personRef(),
+  publisher: personRef(),
+});
+
+/** Home page: marks it as the profile page of the person (what AI engines look for on a portfolio). */
+export const profilePageJsonLd = () => ({
+  "@context": "https://schema.org",
+  "@type": "ProfilePage",
+  url: absoluteUrl("/"),
+  name: `${profile.name}, ${profile.role}`,
+  isPartOf: { "@id": WEBSITE_ID() },
+  mainEntity: personRef(),
+});
+
+export const projectJsonLd = (p: Project) => ({
+  "@context": "https://schema.org",
+  "@type": "CreativeWork",
+  name: p.title,
+  headline: p.title,
+  description: p.description,
+  abstract: p.longDescription.join(" "),
+  url: absoluteUrl(`/projects/${p.slug}/`),
+  image: absoluteUrl(`/projects/${p.slug}/og.png`),
+  dateCreated: p.year,
+  keywords: p.stack.join(", "),
+  creator: personRef(),
+  ...(p.liveUrl ? { sameAs: p.liveUrl } : {}),
+  isPartOf: { "@id": WEBSITE_ID() },
 });
 
 export const blogPostingJsonLd = (p: { slug: string; title: string; description: string; date: string; tags: string[] }) => ({
@@ -85,8 +130,10 @@ export const blogPostingJsonLd = (p: { slug: string; title: string; description:
   url: absoluteUrl(`/blog/${p.slug}/`),
   mainEntityOfPage: absoluteUrl(`/blog/${p.slug}/`),
   image: absoluteUrl(`/blog/${p.slug}/og.png`),
-  author: { "@type": "Person", name: profile.name, url: absoluteUrl("/") },
-  publisher: { "@type": "Person", name: profile.name, url: absoluteUrl("/") },
+  inLanguage: "en",
+  author: { "@type": "Person", "@id": PERSON_ID(), name: profile.name, url: absoluteUrl("/") },
+  publisher: personRef(),
+  isPartOf: { "@id": WEBSITE_ID() },
 });
 
 export const breadcrumbJsonLd = (items: { name: string; path: string }[]) => ({

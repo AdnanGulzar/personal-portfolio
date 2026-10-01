@@ -1,0 +1,189 @@
+React's whole pitch fits in one line: **your UI is a function of your state**. You describe what the screen should look like for the current data, and React works out the smallest set of DOM changes to get there. You never write "find this element and change its text" again.
+
+This post opens the box: what JSX turns into, what "rendering" really means, how React decides what to change, and why state and effects behave the way they do. There are live demos along the way, and a 30-line "mini React" you can edit.
+
+## JSX is just function calls
+
+Browsers don't understand JSX. A compiler (Babel, SWC or esbuild) turns every tag into a function call before your code ever reaches the browser:
+
+```jsx
+// What you write
+<button className="primary" onClick={save}>
+  Save {count} items
+</button>
+
+// What the browser runs (simplified)
+jsx("button", {
+  className: "primary",
+  onClick: save,
+  children: ["Save ", count, " items"],
+});
+```
+
+And that call returns a **plain JavaScript object**, called a React element:
+
+```js
+{
+  type: "button",
+  props: { className: "primary", onClick: save, children: ["Save ", 3, " items"] },
+}
+```
+
+A React element is not a DOM node. It's a cheap, lightweight *description* of one. Creating thousands of them is fast, which is what makes the whole approach practical.
+
+## Components are functions that return descriptions
+
+A component is a function that takes props and returns elements. When an element's `type` is a function instead of a string like `"button"`, React calls that function to find out what it renders, and keeps going until it reaches plain DOM tags:
+
+```jsx
+function Greeting({ name }) {
+  return <h1>Hello, {name}</h1>;
+}
+
+<Greeting name="Ada" />
+// → { type: Greeting, props: { name: "Ada" } }
+// → React calls Greeting({ name: "Ada" })
+// → { type: "h1", props: { children: ["Hello, ", "Ada"] } }
+```
+
+**"Rendering" just means React calling your component functions** to get a fresh description of the UI. It doesn't mean touching the screen. That happens later, and only for what changed.
+
+## Build a tiny React
+
+The best way to demystify React is to build the core of it. This playground has a `jsx()` function that creates element objects and a `render()` function that turns them into real DOM nodes. Edit the `App` description and watch the page change:
+
+<CodePlayground
+  template="vanilla"
+  title="A 30-line React"
+  files={{
+    "/index.js": [
+      '// 1. Elements are plain objects describing the UI',
+      'function jsx(type, props, ...children) {',
+      '  return { type, props: { ...props, children: children.flat() } };',
+      '}',
+      '',
+      '// 2. render() turns a description into real DOM nodes',
+      'function render(element, container) {',
+      '  if (typeof element === "string" || typeof element === "number") {',
+      '    container.appendChild(document.createTextNode(element));',
+      '    return;',
+      '  }',
+      '  // Components are functions: call them to get their elements',
+      '  if (typeof element.type === "function") {',
+      '    return render(element.type(element.props), container);',
+      '  }',
+      '  const node = document.createElement(element.type);',
+      '  for (const [key, value] of Object.entries(element.props)) {',
+      '    if (key === "children") continue;',
+      '    if (key.startsWith("on")) node.addEventListener(key.slice(2).toLowerCase(), value);',
+      '    else node.setAttribute(key, value);',
+      '  }',
+      '  element.props.children.forEach((child) => render(child, node));',
+      '  container.appendChild(node);',
+      '}',
+      '',
+      '// 3. A component and an app, written without JSX',
+      'const Fruit = ({ name }) => jsx("li", null, "🍓 ", name);',
+      '',
+      'const App = () =>',
+      '  jsx("main", { style: "font: 16px/1.6 system-ui; padding: 8px" },',
+      '    jsx("h2", null, "My tiny React"),',
+      '    jsx("ul", null, ["Strawberry", "Mango", "Kiwi"].map((n) => jsx(Fruit, { name: n }))),',
+      '    jsx("button", { onClick: () => alert("Clicked!") }, "Click me")',
+      '  );',
+      '',
+      'document.body.innerHTML = "";',
+      'render(jsx(App, null), document.body);',
+    ].join("\n"),
+  }}
+/>
+
+Real React adds the two hard parts this toy skips: **updating** an existing page efficiently instead of rebuilding it, and **state**. The rest of this post is about those.
+
+## What triggers a render
+
+React re-renders a component when:
+
+1. **Its state changes**, via a `useState` setter or `useReducer` dispatch.
+2. **Its parent re-renders.** By default children re-render with their parent, whether their props changed or not.
+3. **A context it reads changes.**
+
+Notice what's *not* on the list: changing a regular variable or mutating an object. React only knows something changed when you tell it, through a setter. That's why `items.push(x)` doesn't update the screen and `setItems([...items, x])` does.
+
+### State is a snapshot
+
+When React calls your component, it hands it the state **for that render**. `count` is a constant inside that call. Calling `setCount` doesn't change it. It *asks* React for another render with a new value. React also **batches** every update made in the same event into a single render:
+
+<StateSnapshotDemo />
+
+When the next value depends on the previous one, pass an **updater function** (`c => c + 1`). React queues them and runs each one with the latest value.
+
+## Render, then commit
+
+Every update goes through two phases.
+
+**1. Render phase: work out what should change.** React calls your components and gets a new tree of elements. It then compares that tree with the previous one. This comparison is called **reconciliation**, and the result is a list of changes. This phase is pure calculation: nothing on screen changes, and React may pause it, throw it away or run it twice (Strict Mode does exactly that in development to catch side effects).
+
+**2. Commit phase: apply the changes.** React applies the minimum set of DOM operations: insert this node, update that attribute, remove this one. This phase is fast and runs in one go, so the user never sees a half-updated screen.
+
+Internally, React keeps each component instance in a structure called a **fiber**, which holds its type, props, state and hooks, linked into a tree. Fibers let React split rendering into small units of work, so it can pause to handle a keypress and resume later.
+
+<Callout type="tip" title="Why the 'virtual DOM' is fast">
+Comparing two trees of plain objects is much cheaper than reading and writing the real DOM, which can trigger style recalculation and layout. React does the cheap work first so it only has to do the minimum of the expensive work.
+</Callout>
+
+## How React decides what changed
+
+Comparing two arbitrary trees perfectly is very slow: the best general algorithms take O(n³) time. React gets it down to O(n) with two simple rules:
+
+1. **Different type → replace the whole subtree.** If a `<div>` becomes a `<section>`, or `<Profile>` becomes `<Settings>`, React destroys the old subtree (including all its state) and builds a new one.
+2. **Same type → keep the node, update its props.** For DOM tags it patches only the changed attributes. For components it keeps the instance and its state, and re-renders it with the new props.
+
+For lists, React needs one more hint: the `key` prop. Keys tell React which item is which between renders, so it can match an item even after it moves. With no key (or the array index as the key), React matches items **by position**, and that goes wrong as soon as you insert at the top. Try it:
+
+<KeysDemo />
+
+Each row's input keeps its own DOM state, like a real form field would. With index keys, adding "Mango" at the top makes React think *row 0 changed its name to Mango* and a new row was added at the end, so every note shifts onto the wrong fruit. **Use a stable, unique id from your data as the key.** The index is only safe when the list never reorders, filters or inserts.
+
+<Callout type="info" title="Keys can reset state on purpose">
+The same rule works in your favour too. Rendering `<Profile key={userId} />` makes React treat each user as a different component, so all of its internal state resets when the user changes, with no cleanup effect needed.
+</Callout>
+
+## Hooks are a list attached to the component
+
+How does `useState` know which state is yours when your component is "just a function" that runs again on every render? React stores hook data on the component's fiber as an **ordered list**. The first `useState` call gets slot 1, the second gets slot 2, and so on, on every render.
+
+That's the whole reason behind the **Rules of Hooks**: call hooks at the top level, never inside conditions or loops. If a hook is skipped on one render, every hook after it reads the wrong slot.
+
+## Effects run after the screen updates
+
+`useEffect` is for synchronising with things outside React: subscriptions, timers, network requests, manual DOM work. The order matters:
+
+1. React renders your component and commits the changes to the DOM.
+2. The browser paints the new screen.
+3. **Then** React runs your effects. Before re-running an effect, it first runs the previous cleanup function.
+
+`useLayoutEffect` runs between steps 1 and 2, after the DOM changes but before paint. Use it only when you have to measure layout and adjust before the user sees anything, because it blocks painting.
+
+<Callout type="warn" title="You might not need an effect">
+If you're computing a value from props or state, compute it during render. If something should happen because the user clicked, do it in the event handler. Effects that just copy state into other state cause extra renders and subtle bugs.
+</Callout>
+
+## Concurrent rendering
+
+Since React 18, rendering can be **interruptible**. When you mark an update as non-urgent with `useTransition` or `useDeferredValue`, React renders it in the background in small slices, and gives control back to the browser between slices. If the user types again, React throws away the stale work and starts over with the newest value. Urgent updates, like the characters appearing in an input, never wait behind slow ones.
+
+The [frontend performance post](/blog/frontend-performance/) has a live demo of this, along with `React.memo`. And because a render is "just" an event-loop task underneath, the [How JavaScript works](/blog/how-javascript-works/) post explains why one long render blocks every click.
+
+## Where it's heading: the server and the compiler
+
+Two newer pieces build on the same model:
+
+- **Server Components** (used by the Next.js App Router) run only on the server. They can read a database directly, and they send the browser the rendered result instead of their code. Only components marked `"use client"` ship JavaScript and become interactive in the browser, a step called **hydration**.
+- **The React Compiler** analyses your components at build time and adds memoisation automatically, so much of the manual `useMemo` and `useCallback` work becomes unnecessary.
+
+## The mental model
+
+> React is a loop: state changes, React calls your components to describe the new UI, compares it with the old description, and commits only the difference to the DOM.
+
+Keep that loop in mind and most React behaviour stops being surprising. Stale state in a handler? It's a snapshot from that render. A child re-rendered for no reason? Its parent did. State reset unexpectedly? The type or key changed. A janky list? The render phase is doing too much work.

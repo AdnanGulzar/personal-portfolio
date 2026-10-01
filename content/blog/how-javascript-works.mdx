@@ -1,0 +1,187 @@
+You write `fetch(url).then(render)` and it just works: the page doesn't freeze, the data shows up, the button still clicks. Underneath, **JavaScript runs on a single thread, one line at a time**, and a small set of mechanisms (the engine, the call stack, the heap and the event loop) make it feel like it does many things at once.
+
+This post walks through how a line of JavaScript actually runs, from source text to machine code to the event loop, with a step-by-step demo you can click through.
+
+## What runs your code: the engine
+
+A **JavaScript engine** is the program that reads and executes JavaScript. Chrome, Edge and Node.js use **V8**, Firefox uses SpiderMonkey and Safari uses JavaScriptCore. They differ in details, but they all follow the same pipeline:
+
+1. **Parse.** The source text is turned into an **Abstract Syntax Tree (AST)**, a tree describing the structure of your code. A syntax error stops everything here, before a single line runs.
+2. **Interpret.** The AST is compiled into compact **bytecode**, which an interpreter starts running straight away. Fast to start, slower to run.
+3. **Optimise.** While the code runs, the engine watches which functions are "hot" (called a lot) and what types they see. Hot code is recompiled by a **JIT (just-in-time) compiler** into optimised machine code.
+4. **Deoptimise.** If an assumption breaks (a function that always got numbers suddenly gets a string), the engine throws the optimised code away and falls back to bytecode.
+
+<Callout type="tip" title="Write boring code, get fast code">
+The JIT loves predictability. Functions that always receive the same types, and objects that always have the same properties added in the same order, stay optimised. That's one practical reason TypeScript-style consistency also helps performance.
+</Callout>
+
+## One thread, one call stack
+
+JavaScript has **one call stack**, a list of the functions currently running. Calling a function pushes a frame onto the stack; returning pops it off. Only the function on top is ever running.
+
+```js
+function greet(name) {
+  return "Hello, " + name;
+}
+
+function main() {
+  const msg = greet("Ada"); // stack: main → greet
+  console.log(msg);         // stack: main → console.log
+}
+
+main();                     // stack: main
+```
+
+Two consequences follow from having a single stack:
+
+- **Recursion without an exit fills it up.** That's the famous `RangeError: Maximum call stack size exceeded`.
+- **Long synchronous work blocks everything.** While a loop runs for 2 seconds, nothing else can: no clicks, no rendering, no timers. The page is frozen.
+
+## Memory: the stack and the heap
+
+Each stack frame holds that call's local variables. **Objects, arrays and functions live in the heap**, a big unstructured region of memory, and variables hold *references* to them. That's why two variables can point to the same object:
+
+```js
+const a = { score: 1 };
+const b = a;   // copies the reference, not the object
+b.score = 99;
+a.score;       // 99
+```
+
+You never free memory yourself. The **garbage collector** periodically finds objects that nothing can reach any more (starting from globals and the current stack) and reclaims them. Most objects die young, so engines collect new objects often and cheaply, and long-lived objects rarely. A **memory leak** in JavaScript is almost always something still *reachable* that you forgot about: a growing array, a cache with no limit, or an event listener that was never removed.
+
+## Execution contexts and hoisting
+
+Before a function (or the whole script) runs, the engine creates an **execution context** for it in two passes:
+
+1. **Creation.** It scans for declarations and sets up memory for them.
+2. **Execution.** It runs the code line by line.
+
+The creation pass is why **hoisting** happens. Declarations are registered before any line runs, but they aren't all initialised the same way:
+
+```js
+console.log(sayHi()); // "hi": function declarations are hoisted whole
+console.log(x);       // undefined: var is hoisted and set to undefined
+console.log(y);       // ReferenceError: let/const exist but are uninitialised
+
+function sayHi() { return "hi"; }
+var x = 1;
+let y = 2;
+```
+
+The gap between the start of the scope and the `let`/`const` line is called the **temporal dead zone**. It turns a whole category of silent `undefined` bugs into loud errors, which is the main reason modern code uses `let` and `const` instead of `var`.
+
+## Scope and closures
+
+**Scope** is decided by where you write code, not where you call it (this is called *lexical* scope). When the engine looks up a variable, it checks the current function, then the function around it, and so on out to the global scope.
+
+A **closure** is what you get when a function keeps using variables from the scope where it was created, even after that outer function has returned:
+
+```js
+function makeCounter() {
+  let count = 0;            // lives on after makeCounter returns
+  return () => ++count;
+}
+
+const next = makeCounter();
+next(); // 1
+next(); // 2: same `count`, remembered by the closure
+```
+
+Closures are everywhere: event handlers, callbacks, React hooks and module patterns all rely on them. The outer variables stay alive in the heap for as long as the inner function is reachable, which is also how closures can accidentally keep large objects alive.
+
+## The engine isn't the whole story: the runtime
+
+Here's something that surprises most people: **`setTimeout`, `fetch`, the DOM and `addEventListener` are not part of JavaScript.** The engine only knows the language itself. Those features come from the **host environment**:
+
+- In the **browser**, they're Web APIs implemented in C++ by the browser, running on their own threads.
+- In **Node.js**, they're provided by Node and a library called libuv (file system, network, timers).
+
+When you call `setTimeout(cb, 1000)`, JavaScript hands `cb` to the browser and moves on immediately. The browser counts the second on its own. When the time is up, it can't just interrupt whatever JavaScript is running, because there's only one thread. Instead, it **queues the callback**, and the event loop decides when it runs.
+
+## The event loop
+
+The event loop is a simple rule the runtime repeats forever:
+
+1. Run one **task** (the initial script, a timer callback, a click handler…) until the call stack is empty.
+2. Run **every microtask** in the microtask queue, including any new ones queued along the way.
+3. If it's time, let the browser **render** (style, layout, paint).
+4. Go back to 1.
+
+There are two queues, and the difference between them is the source of most "why did this run first?" puzzles:
+
+- **Tasks** (also called macrotasks): `setTimeout`, `setInterval`, UI events, network callbacks, `MessageChannel`.
+- **Microtasks**: promise callbacks (`.then`, `.catch`, `.finally`, code after `await`) and `queueMicrotask`.
+
+Step through this snippet and watch where each callback goes:
+
+<EventLoopDemo />
+
+That's why a `setTimeout(fn, 0)` is never really "0 ms": it waits for the current script *and* every pending microtask. And since microtasks run before rendering, an endless chain of microtasks can freeze the page as surely as a `while (true)` loop.
+
+### async/await is promises in disguise
+
+`async`/`await` doesn't add new magic to the event loop. An `async` function runs synchronously until its first `await`. At that point it pauses, and the rest of the function is scheduled as a **microtask** once the awaited promise settles:
+
+```js
+async function load() {
+  console.log("A");
+  await null;          // pause: the rest becomes a microtask
+  console.log("C");
+}
+
+load();
+console.log("B");      // prints A, B, C
+```
+
+## Predict the output
+
+Try predicting the order before you run it, then edit the code and experiment. Nest a promise inside a timeout, or a timeout inside a promise, and see where it lands:
+
+<CodePlayground
+  template="vanilla"
+  title="Event loop quiz"
+  files={{
+    "/index.js": [
+      'const out = [];',
+      'const log = (msg) => out.push(msg);',
+      '',
+      'log("1. script start");',
+      '',
+      'setTimeout(() => log("timeout"), 0);',
+      '',
+      'Promise.resolve()',
+      '  .then(() => log("promise 1"))',
+      '  .then(() => log("promise 2"));',
+      '',
+      '(async () => {',
+      '  log("async: before await");',
+      '  await null;',
+      '  log("async: after await");',
+      '})();',
+      '',
+      'log("2. script end");',
+      '',
+      '// Show the result once every queue has drained',
+      'setTimeout(() => {',
+      '  document.body.innerHTML =',
+      '    "<ol style=\\"font: 15px/1.9 system-ui\\">" +',
+      '    out.map((m) => "<li>" + m + "</li>").join("") +',
+      '    "</ol>";',
+      '}, 50);',
+    ].join("\n"),
+  }}
+/>
+
+## Why this matters in practice
+
+- **Keep tasks short.** A click handler that runs for 300 ms delays the next paint by 300 ms. Users feel that as lag (it's exactly what the INP metric measures, see [Frontend performance, explained](/blog/frontend-performance/)). Split heavy work into chunks, or move it to a **Web Worker**, which has its own thread and event loop.
+- **Don't trust timer precision.** Timers say "no sooner than", never "exactly at".
+- **Remove listeners and clear intervals.** Their closures keep everything they reference alive in the heap.
+- **Prefer `await` over nested callbacks.** It's the same event loop underneath, but the order of operations reads top to bottom.
+
+<Callout type="info" title="The one-sentence version">
+JavaScript runs one thing at a time on a single call stack. The host environment does the waiting in the background, then hands callbacks back through two queues, and the event loop always empties the microtask queue before it takes the next task.
+</Callout>
+
+Once this model clicks, a lot of other things make sense too: why `await` in a loop is slow, why a heavy component makes typing lag, and why React batches state updates. That last one is the subject of the companion post, [How React works](/blog/how-react-works/).

@@ -9,6 +9,9 @@ import WebVitals from "@/components/blog/WebVitals";
 import DebounceDemo from "@/components/blog/DebounceDemo";
 import RenderDemo from "@/components/blog/RenderDemo";
 import BundleChart from "@/components/blog/BundleChart";
+import EventLoopDemo from "@/components/blog/EventLoopDemo";
+import KeysDemo from "@/components/blog/KeysDemo";
+import StateSnapshotDemo from "@/components/blog/StateSnapshotDemo";
 
 const slug = (children: React.ReactNode) =>
   String(Array.isArray(children) ? children.join("") : children)
@@ -56,6 +59,9 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
     DebounceDemo,
     RenderDemo,
     BundleChart,
+    EventLoopDemo,
+    KeysDemo,
+    StateSnapshotDemo,
     ...components,
   };
 }
