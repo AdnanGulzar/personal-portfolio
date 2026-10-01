@@ -4,6 +4,7 @@ import Link from "next/link";
 import { motion, AnimatePresence, useMotionValueEvent, useScroll } from "motion/react";
 import { Menu, X } from "lucide-react";
 import { navLinks, profile } from "@/lib/data";
+import { asset } from "@/lib/utils";
 
 export default function Nav() {
   const { scrollY } = useScroll();
@@ -56,7 +57,7 @@ export default function Nav() {
           {navLinks.map((l) => (
             <li key={l.href} className="relative">
               <a
-                href={`/${l.href}`}
+                href={asset(`/${l.href}`)}
                 onMouseEnter={() => setHovered(l.href)}
                 className={`relative z-10 block px-4 py-2 text-sm transition-colors ${active === l.href ? "text-white" : "text-muted hover:text-white"}`}
               >
@@ -74,7 +75,7 @@ export default function Nav() {
 
         <div className="flex items-center gap-2">
           <a
-            href="/#contact"
+            href={asset("/#contact")}
             className="hidden rounded-full bg-white px-4 py-2 text-sm font-medium text-black transition hover:bg-white/85 sm:block"
           >
             Let&apos;s talk
@@ -102,7 +103,7 @@ export default function Nav() {
             {navLinks.map((l, i) => (
               <motion.a
                 key={l.href}
-                href={`/${l.href}`}
+                href={asset(`/${l.href}`)}
                 onClick={() => setOpen(false)}
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
