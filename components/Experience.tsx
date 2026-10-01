@@ -11,10 +11,10 @@ export default function Experience() {
   const scaleY = useSpring(scrollYProgress, { stiffness: 100, damping: 25 });
 
   return (
-    <section id="experience" className="relative mx-auto max-w-4xl px-6 py-28">
-      <SectionHeading eyebrow="Experience" title="Where I've" accent="made an impact" align="center" />
+    <section id="experience" className="relative mx-auto max-w-6xl px-6 py-28">
+      <SectionHeading eyebrow="Experience" title="Where I've" accent="made an impact" />
 
-      <ol ref={ref} className="relative mt-20 space-y-16 pl-10 sm:pl-14">
+      <ol ref={ref} className="relative mt-20 max-w-4xl space-y-16 pl-10 sm:pl-14">
         <div aria-hidden className="absolute left-3 top-2 bottom-2 w-px bg-line sm:left-5" />
         <motion.div aria-hidden style={{ scaleY }} className="absolute left-3 top-2 bottom-2 w-px origin-top bg-gradient-to-b from-white via-white/70 to-transparent sm:left-5" />
 

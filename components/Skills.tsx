@@ -1,37 +1,55 @@
 "use client";
 import { useState } from "react";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion, useTime, useTransform, type MotionValue } from "motion/react";
 import { Layers, Server, Cloud } from "lucide-react";
-import { skillGroups } from "@/lib/data";
+import { skillGroups, type SkillGroup } from "@/lib/data";
 import SectionHeading from "./SectionHeading";
 import Reveal from "./Reveal";
+import TiltCard from "./TiltCard";
 
 const icons = { frontend: Layers, backend: Server, devops: Cloud } as const;
 
-function Orbit({ items }: { items: string[] }) {
+const ORBIT_PERIOD = 30_000; // ms per revolution
+
+// Chips travel around the circle by position only (no rotation), so text always stays level.
+function OrbitChip({ label, offset, angle, index }: { label: string; offset: number; angle: MotionValue<number>; index: number }) {
+  const left = useTransform(angle, (r) => `${50 + Math.cos(r + offset) * 50}%`);
+  const top = useTransform(angle, (r) => `${50 + Math.sin(r + offset) * 50}%`);
+  return (
+    <motion.span
+      className="absolute whitespace-nowrap rounded-full border border-line bg-black px-2.5 py-1 font-mono text-[10px] text-muted"
+      style={{ left, top, x: "-50%", y: "-50%" }}
+      initial={{ opacity: 0, scale: 0.4 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.4 }}
+      transition={{ duration: 0.4, delay: index * 0.04, ease: [0.16, 1, 0.3, 1] }}
+    >
+      {label}
+    </motion.span>
+  );
+}
+
+function Orbit({ group }: { group: SkillGroup }) {
+  const Icon = icons[group.id as keyof typeof icons];
+  const reduce = useReducedMotion();
+  const time = useTime();
+  const angle = useTransform(time, (t) => (reduce ? 0 : (t / ORBIT_PERIOD) * Math.PI * 2));
   return (
     <div aria-hidden className="relative mx-auto mt-10 hidden aspect-square w-full max-w-[300px] lg:block">
       {[1, 0.68, 0.36].map((s, i) => (
         <div key={i} className="absolute inset-0 m-auto rounded-full border border-line" style={{ width: `${s * 100}%`, height: `${s * 100}%` }} />
       ))}
-      <motion.div className="absolute inset-0" animate={{ rotate: 360 }} transition={{ duration: 30, repeat: Infinity, ease: "linear" }}>
-        {items.map((t, i) => {
-          const a = (i / items.length) * Math.PI * 2;
-          return (
-            <motion.span
-              key={t}
-              className="absolute whitespace-nowrap rounded-full border border-line bg-black px-2.5 py-1 font-mono text-[10px] text-muted"
-              style={{ left: `${50 + Math.cos(a) * 50}%`, top: `${50 + Math.sin(a) * 50}%`, x: "-50%", y: "-50%" }}
-              animate={{ rotate: -360 }}
-              transition={{ duration: 30, repeat: Infinity, ease: "linear" }}
-            >
-              {t}
-            </motion.span>
-          );
-        })}
-      </motion.div>
+      <AnimatePresence>
+        {group.orbit.map((t, i) => (
+          <OrbitChip key={`${group.id}-${t}`} label={t} index={i} angle={angle} offset={(i / group.orbit.length) * Math.PI * 2} />
+        ))}
+      </AnimatePresence>
       <div className="absolute inset-0 m-auto grid size-16 place-items-center rounded-2xl border border-line-strong bg-white/[0.04] shadow-[0_0_60px_rgba(255,255,255,0.12)]">
-        <span className="font-mono text-xs text-white">&lt;/&gt;</span>
+        <AnimatePresence mode="wait">
+          <motion.span key={group.id} initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.6 }} transition={{ duration: 0.25 }}>
+            <Icon className="size-5 text-white" />
+          </motion.span>
+        </AnimatePresence>
       </div>
     </div>
   );
@@ -68,10 +86,10 @@ export default function Skills() {
               })}
             </div>
           </Reveal>
-          <Orbit items={skillGroups.flatMap((g) => g.skills.slice(0, 2).map((s) => s.name.split(" ")[0]))} />
+          <Orbit group={group} />
         </div>
 
-        <div className="card-border self-center rounded-3xl p-8 sm:p-10">
+        <TiltCard wrapperClassName="self-center" className="p-8 sm:p-10">
           <AnimatePresence mode="wait">
             <motion.div
               key={group.id}
@@ -105,7 +123,7 @@ export default function Skills() {
               </ul>
             </motion.div>
           </AnimatePresence>
-        </div>
+        </TiltCard>
       </div>
     </section>
   );

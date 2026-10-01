@@ -1,11 +1,13 @@
 "use client";
 import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowRight, ArrowUpRight, Check, Code, Copy, LoaderCircle, Mail, MapPin, Send } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Check, Code, Copy, LoaderCircle, Mail, Send } from "lucide-react";
 import { GitHubIcon, LinkedInIcon } from "./Icons";
 import { profile } from "@/lib/data";
 import Reveal from "./Reveal";
 import Magnetic from "./Magnetic";
+import TiltCard from "./TiltCard";
+import Eyebrow from "./Eyebrow";
 
 export default function Contact() {
   const [copied, setCopied] = useState(false);
@@ -74,9 +76,7 @@ export default function Contact() {
         <div className="grid gap-12 lg:grid-cols-2 lg:gap-20">
           <div>
             <Reveal>
-              <span className="inline-flex items-center gap-2 font-mono text-xs uppercase tracking-[0.2em] text-subtle">
-                <span className="h-px w-6 bg-white/30" /> Contact
-              </span>
+              <Eyebrow>Contact</Eyebrow>
             </Reveal>
             <Reveal delay={0.08}>
               <h2 className="mt-5 text-5xl font-semibold leading-[1.05] tracking-tight sm:text-6xl">
@@ -114,13 +114,6 @@ export default function Contact() {
                     </motion.span>
                   </AnimatePresence>
                 </button>
-                <div className="flex w-full max-w-md items-center gap-4 rounded-2xl border border-line bg-white/[0.02] p-4">
-                  <span className="grid size-10 place-items-center rounded-xl border border-line"><MapPin className="size-4 text-fg" /></span>
-                  <span>
-                    <span className="block text-xs text-subtle">Location</span>
-                    <span className="block text-sm text-fg">{profile.location}</span>
-                  </span>
-                </div>
                 <div className="flex max-w-md flex-wrap gap-2 pt-1">
                   {[
                     { href: profile.socials.linkedin, label: "LinkedIn", Icon: LinkedInIcon },
@@ -147,7 +140,8 @@ export default function Contact() {
           </div>
 
           <Reveal delay={0.15}>
-            <form onSubmit={submit} className="card-border space-y-4 rounded-3xl p-6 backdrop-blur sm:p-8">
+            <TiltCard className="p-6 sm:p-8">
+            <form onSubmit={submit} className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="block">
                   <span className="mb-2 block text-xs text-muted">Name</span>
@@ -188,6 +182,7 @@ export default function Contact() {
                 </Magnetic>
               </div>
             </form>
+            </TiltCard>
           </Reveal>
         </div>
       </div>

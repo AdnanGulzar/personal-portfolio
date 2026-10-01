@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   openGraph: { title: `${profile.name} — ${profile.role}`, description: profile.tagline, type: "website" },
 };
 
-export const viewport: Viewport = { themeColor: "#000000" };
+export const viewport: Viewport = { themeColor: "#050b1f" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

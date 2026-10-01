@@ -8,7 +8,7 @@ import {
   useTransform,
   useReducedMotion,
 } from "motion/react";
-import { ArrowRight, ArrowUpRight, Check, Zap } from "lucide-react";
+import { ArrowRight, Check, Download, Zap } from "lucide-react";
 import { profile } from "@/lib/data";
 import { asset } from "@/lib/utils";
 
@@ -67,7 +67,7 @@ function CodeWindow() {
   const lineStarts: number[] = [];
   code.reduce((off, l) => { lineStarts.push(off); return off + l.reduce((m, [t]) => m + t.length, 0) + 1; }, 0);
   return (
-    <div className="card-border overflow-hidden rounded-2xl bg-[#070707]/90 shadow-[0_30px_120px_-20px_rgba(0,0,0,0.9)] backdrop-blur">
+    <div className="card-border overflow-hidden rounded-2xl bg-[#08112a]/90 shadow-[0_30px_120px_-20px_rgba(0,0,0,0.9)] backdrop-blur">
       <div className="flex items-center gap-2 border-b border-line px-4 py-3">
         <span className="size-2.5 rounded-full bg-[#ff5f57]" />
         <span className="size-2.5 rounded-full bg-[#febc2e]" />
@@ -199,10 +199,11 @@ export default function Hero() {
             </a>
             {profile.resumeUrl && <a
               href={asset(profile.resumeUrl)}
-              className="conic-border group inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-fg transition hover:text-white"
+              download={`${profile.name.replace(/\s+/g, "-")}-CV.pdf`}
+              className="conic-border group inline-flex items-center gap-2 rounded-full border border-line-strong bg-black px-6 py-3 text-sm font-medium text-fg transition hover:text-white"
             >
-              Download résumé
-              <ArrowUpRight className="size-4 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+              Download CV
+              <Download className="size-4 transition-transform group-hover:translate-y-0.5" />
             </a>}
           </motion.div>
         </div>

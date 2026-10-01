@@ -12,7 +12,7 @@ export default function ProjectVisual({ accent, variant = 0, image, alt = "" }: 
       <div aria-hidden className="absolute inset-0 bg-grid opacity-60 [mask-image:none]" />
 
       {/* window chrome */}
-      <div className="absolute inset-x-5 top-5 bottom-0 rounded-t-xl border border-b-0 border-line bg-[#0b0b0b]/90 backdrop-blur transition-transform duration-700 ease-[cubic-bezier(.16,1,.3,1)] group-hover:-translate-y-2">
+      <div className="absolute inset-x-5 top-5 bottom-0 rounded-t-xl border border-b-0 border-line bg-[#0a1430]/90 backdrop-blur transition-transform duration-700 ease-[cubic-bezier(.16,1,.3,1)] group-hover:-translate-y-2">
         <div className="flex items-center gap-1.5 border-b border-line px-3 py-2">
           <span className="size-2 rounded-full bg-white/15" />
           <span className="size-2 rounded-full bg-white/15" />

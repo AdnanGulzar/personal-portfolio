@@ -1,4 +1,5 @@
 import Reveal from "./Reveal";
+import Eyebrow from "./Eyebrow";
 
 export default function SectionHeading({
   eyebrow,
@@ -17,10 +18,7 @@ export default function SectionHeading({
   return (
     <div className={center ? "mx-auto max-w-2xl text-center" : "max-w-2xl"}>
       <Reveal>
-        <span className="inline-flex items-center gap-2 font-mono text-xs uppercase tracking-[0.2em] text-subtle">
-          <span className="h-px w-6 bg-white/30" />
-          {eyebrow}
-        </span>
+        <Eyebrow>{eyebrow}</Eyebrow>
       </Reveal>
       <Reveal delay={0.08}>
         <h2 className="mt-5 text-4xl font-semibold tracking-tight text-balance sm:text-5xl">

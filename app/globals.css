@@ -5,9 +5,11 @@
   --font-serif: "Instrument Serif", ui-serif, Georgia, serif;
   --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, monospace;
 
-  --color-bg: #000000;
-  --color-surface: #0a0a0a;
-  --color-elevated: #111111;
+  --color-bg: #050b1f;
+  --color-surface: #0a1430;
+  --color-elevated: #101c3d;
+  /* Tailwind's black (bg-black/60, to-black, …) follows the navy background */
+  --color-black: #050b1f;
   --color-line: rgb(255 255 255 / 0.08);
   --color-line-strong: rgb(255 255 255 / 0.14);
   --color-fg: #ededed;

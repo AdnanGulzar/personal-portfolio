@@ -42,7 +42,7 @@ export default function Nav() {
     >
       <nav
         className={`mx-auto flex max-w-5xl items-center justify-between rounded-full border px-3 py-2 transition-all duration-500 ${
-          scrolled ? "border-line bg-black/60 shadow-[0_8px_32px_rgba(0,0,0,0.6)] backdrop-blur-xl" : "border-transparent bg-transparent"
+          scrolled ? "border-line bg-black/30 shadow-[0_8px_32px_rgba(0,0,0,0.35)] backdrop-blur-xl" : "border-transparent bg-transparent"
         }`}
       >
         <Link href="/" className="group flex items-center gap-2.5 pl-2" aria-label="Home">
@@ -68,8 +68,7 @@ export default function Nav() {
                   className="absolute inset-0 rounded-full bg-white/[0.07]"
                   transition={{ type: "spring", stiffness: 400, damping: 32 }}
                 />
-              )}
-            </li>
+              )}            </li>
           ))}
         </ul>
 
@@ -98,7 +97,7 @@ export default function Nav() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -10, scale: 0.98 }}
             transition={{ duration: 0.25 }}
-            className="mx-auto mt-2 max-w-5xl rounded-3xl border border-line bg-black/90 p-2 backdrop-blur-xl md:hidden"
+            className="mx-auto mt-2 max-w-5xl rounded-3xl border border-line bg-black/60 p-2 backdrop-blur-xl md:hidden"
           >
             {navLinks.map((l, i) => (
               <motion.a

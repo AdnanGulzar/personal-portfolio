@@ -6,24 +6,23 @@ export const profile = {
   name: "Adnan Gul",
   initials: "AG",
   role: "Senior Full Stack Developer",
-  location: "Pakistan · Remote (UTC+5)",
   email: "adnan.gull548922@gmail.com",
   available: true,
   tagline:
     "I build fast, scalable web products end to end — from React UIs to APIs, databases and job queues.",
   summary:
-    "Senior full stack developer with 4+ years shipping scalable web applications end to end. On the frontend I build with React.js, Next.js and TypeScript; on the backend I design APIs, database schemas and migrations, data import pipelines and Redis/BullMQ job processing. I've delivered enterprise dashboards, CRM and reporting modules and AI-powered features, and I care about secure, well-audited systems that stay fast as they grow.",
+    "Senior full stack developer with 6+ years shipping scalable web applications end to end. On the frontend I build with React.js, Next.js and TypeScript; on the backend I design APIs, database schemas and migrations, data import pipelines and Redis/BullMQ job processing. I've delivered enterprise dashboards, CRM and reporting modules and AI-powered features, and I care about secure, well-audited systems that stay fast as they grow.",
   socials: {
     github: "https://github.com/AdnanGulzar",
     linkedin: "https://www.linkedin.com/in/adnangul",
     leetcode: "", // e.g. "https://leetcode.com/u/your-username/" — empty hides it
     x: "", // leave empty to hide the icon
   },
-  resumeUrl: "", // e.g. "/resume.pdf" (put the file in /public) — empty hides the button
+  resumeUrl: "/cv.pdf", // file lives in /public — empty hides the button
 };
 
 export const stats: { value: number; suffix: string; label: string; decimals?: number }[] = [
-  { value: 4, suffix: "+", label: "Years experience" },
+  { value: 6, suffix: "+", label: "Years experience" },
   { value: 10, suffix: "+", label: "Full stack apps delivered" },
   { value: 45, suffix: "%", label: "Faster annotation tooling" },
   { value: 95, suffix: "+", label: "Lighthouse score" },
@@ -41,6 +40,7 @@ export type SkillGroup = {
   label: string;
   description: string;
   skills: { name: string; level: number }[];
+  orbit: string[]; // short tech names shown on the orbit
 };
 
 export const skillGroups: SkillGroup[] = [
@@ -48,6 +48,7 @@ export const skillGroups: SkillGroup[] = [
     id: "frontend",
     label: "Frontend",
     description: "Modular, animated, performance-obsessed interfaces.",
+    orbit: ["React", "Next.js", "TypeScript", "Redux", "Zustand", "MUI", "SCSS", "Framer Motion"],
     skills: [
       { name: "React.js / Next.js", level: 95 },
       { name: "TypeScript / JavaScript (ES6+)", level: 92 },
@@ -61,6 +62,7 @@ export const skillGroups: SkillGroup[] = [
     id: "backend",
     label: "Backend",
     description: "APIs, schemas, pipelines and queues that keep products running.",
+    orbit: ["Node.js", "Express", "NestJS", "WebSockets", "Redis", "BullMQ", "MongoDB", "MySQL"],
     skills: [
       { name: "Node.js / Express / NestJS", level: 88 },
       { name: "RESTful APIs / WebSockets / SSE", level: 88 },
@@ -74,6 +76,7 @@ export const skillGroups: SkillGroup[] = [
     id: "devops",
     label: "DevOps",
     description: "Containerised builds, CI/CD and cloud deploys.",
+    orbit: ["Git", "GitHub", "CI/CD", "Docker", "AWS EC2", "DigitalOcean", "Nginx"],
     skills: [
       { name: "Git / GitHub", level: 92 },
       { name: "GitHub Actions (CI/CD)", level: 82 },
