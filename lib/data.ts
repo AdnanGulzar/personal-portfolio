@@ -6,7 +6,7 @@ export const profile = {
   name: "Adnan Gul",
   initials: "AG",
   role: "Senior Full Stack Developer",
-  email: "adnan.gull548922@gmail.com",
+  email: "hello@adnangul.com",
   available: true,
   tagline:
     "I build fast, scalable web products end to end — from React UIs to APIs, databases and job queues.",
