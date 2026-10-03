@@ -28,7 +28,7 @@ export default function BlogIndex() {
             Hands-on explanations with live demos. Every post has something to drag, type into or break.
           </p>
         </Reveal>
-        <div className="mt-16 grid gap-5 md:grid-cols-2">
+        <div className="mt-16 grid grid-cols-1 gap-5 md:grid-cols-2">
           {posts.map((p, i) => (
             <Reveal key={p.slug} delay={i * 0.06} className="h-full">
               <BlogCard post={p} />

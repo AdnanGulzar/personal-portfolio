@@ -1,6 +1,7 @@
 // ─────────────────────────────────────────────────────────────
 //  Blog posts. Each entry's content lives in content/blog/<slug>.mdx
-//  To add a post: create the .mdx file, then add an entry here (newest first).
+//  To add a post: create the .mdx file, then add an entry here.
+//  The list is sorted newest first below, so order here doesn't matter.
 // ─────────────────────────────────────────────────────────────
 
 export type Post = {
@@ -14,6 +15,16 @@ export type Post = {
 };
 
 export const posts: Post[] = [
+  {
+    slug: "how-browsers-work",
+    title: "How browsers work: from typing a URL to pixels on screen",
+    description:
+      "DNS, TCP, TLS and HTTP, then parsing, the DOM and CSSOM, layout, paint and compositing. Follow one request end to end, with demos of where the time goes.",
+    date: "2026-10-03",
+    readingTime: "12 min read",
+    tags: ["Browsers", "Networking", "Fundamentals"],
+    accent: "#ec4899",
+  },
   {
     slug: "how-javascript-works",
     title: "How JavaScript works: engine, call stack and event loop",
@@ -54,7 +65,7 @@ export const posts: Post[] = [
     tags: ["System Design", "Backend", "Scalability"],
     accent: "#3b82f6",
   },
-];
+].sort((a, b) => b.date.localeCompare(a.date)); // stable: same-day posts keep their order
 
 export const formatDate = (d: string) =>
   new Date(`${d}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });

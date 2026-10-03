@@ -18,7 +18,7 @@ export default function Projects() {
         description="A few products I've designed, engineered and deployed — from enterprise SaaS portals to AI-driven dashboards and annotation tools."
       />
 
-      <div className="mt-16 grid gap-5 md:grid-cols-6">
+      <div className="mt-16 grid grid-cols-1 gap-5 md:grid-cols-6">
         {projects.map((p, i) => {
           const span = i < 2 ? "md:col-span-3" : "md:col-span-2";
           return (

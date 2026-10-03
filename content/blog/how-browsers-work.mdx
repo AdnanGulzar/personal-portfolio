@@ -1,0 +1,133 @@
+You type `example.com`, press Enter, and a fraction of a second later there's a page. In between, the browser has found a server somewhere in the world, agreed on encryption with it, asked for a file, and turned a stream of text into pixels, all while keeping every other tab responsive.
+
+This post follows a single request from the address bar to the screen, with two demos: one to see where the time goes on the network, and one to see what different style changes cost to draw.
+
+## 1. Is it a URL or a search?
+
+The first decision happens before any network traffic. The address bar has to work out whether you typed a URL (`example.com`, `localhost:3000`) or a search (`how browsers work`). If it's a search, the text is sent to your default search engine and the rest of this post happens for *that* URL instead.
+
+If you left out the scheme, the browser needs to pick one. Modern browsers try `https://` first. Sites on the **HSTS preload list** (a list built into the browser) are never even tried over plain `http://`. The upgrade happens locally, so there's no insecure first request for an attacker to intercept.
+
+## 2. Finding the server: DNS
+
+Computers connect to IP addresses, not names, so the browser needs to turn `example.com` into something like `93.184.215.14`. This is **DNS**, and it's a chain of caches. Each step only runs if the one before it doesn't have the answer:
+
+1. The **browser's own cache** of recent lookups.
+2. The **operating system's cache** (and your `hosts` file).
+3. A **recursive resolver**, usually run by your ISP or a public service like 1.1.1.1 or 8.8.8.8.
+4. If the resolver doesn't know either, it asks the **root servers**, which point it to the servers for `.com`, which point it to the **authoritative server** for `example.com`, which finally gives the answer.
+
+Every answer comes with a **TTL** (time to live) that says how long it can be cached. That's why a DNS change can take a while to reach everyone, and why the second visit to a site is faster: the lookup is often answered locally in well under a millisecond.
+
+## 3. Opening a connection
+
+Knowing the address isn't enough. Before any HTTP is exchanged, the browser and server have to set up a connection, and every setup step costs at least one **round trip**: a message there and a reply back.
+
+- **TCP handshake.** The client sends `SYN`, the server answers `SYN-ACK`, the client replies `ACK`. That's one round trip before any data can be sent.
+- **TLS handshake.** The two sides agree on encryption keys and the browser checks the server's certificate. TLS 1.3 needs one round trip (TLS 1.2 needed two).
+- **HTTP/3** runs over **QUIC**, which merges the transport and encryption handshakes into a single round trip. Browsers usually find out a server supports it from an `Alt-Svc` header or a DNS record, so the first visit often still uses HTTP/2 over TCP.
+
+The round-trip time (RTT) depends mostly on physical distance. Light in fibre covers about 200 km per millisecond, so a London–Sydney round trip can never be faster than roughly 170 ms, however fast the server is. Play with the numbers:
+
+<RequestWaterfall />
+
+With a far-away server and nothing cached, the network handshakes easily outweigh the server's own work. That's why CDNs exist (they move the server closer, cutting the RTT) and why browsers keep connections open and reuse them. It's also what `<link rel="preconnect">` is for: it starts these handshakes early for an origin you know you'll need.
+
+<Callout type="tip" title="The first 14 KB matter">
+TCP doesn't send at full speed straight away. It starts with a small window (usually about 10 packets, roughly 14 KB) and grows it as acknowledgements come back. If the critical HTML and CSS fit in that first window, the browser can start rendering after a single round trip of data.
+</Callout>
+
+## 4. The request and the response
+
+With a connection open, the browser finally sends its HTTP request. Over HTTP/2 and HTTP/3 it's binary and compressed, but logically it's still this:
+
+```http
+GET / HTTP/2
+Host: example.com
+Accept: text/html
+Accept-Encoding: gzip, br, zstd
+Cookie: session=abc123
+```
+
+The server runs whatever it needs to (routing, database queries, templates) and answers with a status code, headers and a body:
+
+```http
+HTTP/2 200
+Content-Type: text/html; charset=utf-8
+Content-Encoding: br
+Cache-Control: max-age=0, must-revalidate
+ETag: "33a64df5"
+
+<!doctype html>
+<html>...
+```
+
+Some headers decide what happens on the *next* visit. `Cache-Control` says how long the browser may reuse the response without asking. After that, it can send the `ETag` back in an `If-None-Match` header. If nothing changed, the server replies `304 Not Modified` with an empty body, which saves the download but not the round trip. Static files with a content hash in their name (`app.3f9a1c.js`) can be cached for a year, because a new version always gets a new name.
+
+## 5. Parsing HTML into the DOM
+
+The browser doesn't wait for the whole HTML file. It **parses it as it streams in**, turning tags into nodes in a tree called the **DOM** (Document Object Model). That's the same tree your JavaScript sees through `document`.
+
+Parsing pauses for one thing: a plain `<script>` tag. The script might call `document.write` or read the DOM, so the parser has to stop, download the script and run it before continuing. To soften this, browsers run a **preload scanner** that reads ahead in the raw HTML and starts downloading images, scripts and stylesheets it finds, even while the main parser is blocked.
+
+You decide how scripts behave:
+
+```html
+<script src="a.js"></script>         <!-- blocks parsing while it downloads and runs -->
+<script src="b.js" defer></script>   <!-- downloads in parallel, runs in order after parsing -->
+<script src="c.js" async></script>   <!-- downloads in parallel, runs as soon as it arrives -->
+<script type="module" src="d.js"></script> <!-- deferred by default -->
+```
+
+`defer` is the right default for most page scripts. `async` suits independent scripts like analytics, where running order doesn't matter.
+
+## 6. CSS and the CSSOM
+
+Stylesheets are parsed into a second tree, the **CSSOM**, which holds every rule and works out which one wins for each element. CSS doesn't block the HTML parser, but it **does block rendering**: the browser won't paint until it has the CSS, or you'd see a flash of unstyled content.
+
+CSS can also delay JavaScript. A script that runs after a `<link rel="stylesheet">` might read styles (`getComputedStyle`, `offsetWidth`), so the browser waits for that stylesheet before running it. A slow stylesheet in the `<head>` therefore holds up both painting and your scripts.
+
+## 7. From trees to pixels
+
+Once there's a DOM and a CSSOM, the browser runs its **rendering pipeline**:
+
+1. **Style.** Combine the DOM and CSSOM to work out the final styles of every visible element. Elements with `display: none` are left out. Elements with `visibility: hidden` stay in, because they still take up space.
+2. **Layout** (also called reflow). Work out the exact size and position of every box, starting from the viewport width and flowing down the tree.
+3. **Paint.** Record the drawing commands for each element (backgrounds, text, borders, shadows) in the right order, then rasterise them into pixels.
+4. **Composite.** Pages are split into **layers**, which the GPU combines into the final frame. Each layer can be moved or faded without repainting it.
+
+This pipeline doesn't run just once. Every time JavaScript or CSS changes something, the browser re-runs it from the first stage that's affected. Pick a change and see how much work it causes:
+
+<RenderPipelineDemo />
+
+This is the reason behind the common advice to "animate `transform` and `opacity` only". Changing `width`, `top` or `margin` triggers layout on every frame, which is expensive enough to drop frames. A `transform` can be handled entirely on the **compositor thread**, which keeps animating smoothly even when the main thread is busy with JavaScript.
+
+<Callout type="warn" title="Layout thrashing">
+Reading a layout property (`offsetHeight`, `getBoundingClientRect()`) right after writing a style forces the browser to run layout immediately. In a loop that writes, then reads, then writes again, that means one full layout per iteration. Batch all your reads first, then do all your writes.
+</Callout>
+
+## 8. Who does all this: the browser's processes
+
+A modern browser isn't one program but a group of cooperating processes. In Chrome:
+
+- The **browser process** runs the address bar, tabs and bookmarks, and coordinates everything else.
+- The **network service** does the DNS lookups, connections and caching from steps 2–4.
+- **Renderer processes** do steps 5–7. Each one has a main thread where the HTML parser, style, layout and *your JavaScript* all take turns, plus a compositor thread and raster threads.
+- The **GPU process** draws the composited frames to the screen.
+
+Renderers are sandboxed, and with **site isolation** each site gets its own renderer. A crash or a malicious page in one tab can't easily reach another. It's also why one heavy tab doesn't freeze the others.
+
+That shared main thread is the important detail. Parsing, layout and JavaScript can't run at the same time, so a long JavaScript task delays everything else on the page. [How JavaScript works](/blog/how-javascript-works/) explains how the event loop schedules that work.
+
+## Why this matters in practice
+
+- **Cut round trips before you cut milliseconds.** Use a CDN, keep the number of origins small, and `preconnect` to the ones you need early. A trip across the world costs more than most server optimisations save.
+- **Keep the critical path small.** Inline or prioritise the CSS needed for the first screen, `defer` your scripts, and keep the HTML for the first screen light.
+- **Cache aggressively, bust by filename.** Hashed assets with long `Cache-Control` lifetimes make the second visit almost free.
+- **Animate on the compositor.** Stick to `transform` and `opacity`, and avoid mixing DOM reads and writes in loops.
+
+<Callout type="info" title="The one-sentence version">
+The browser resolves a name to an address, spends a few round trips opening a secure connection, streams the HTML into a DOM while CSS builds a CSSOM, then runs style, layout, paint and composite to draw a frame, and runs that pipeline again every time something changes.
+</Callout>
+
+Every step here maps to a metric you can measure. Slow DNS and handshakes show up as a high time to first byte, render-blocking CSS and scripts delay **LCP**, and expensive layout on the main thread hurts **INP**. [Frontend performance, explained](/blog/frontend-performance/) has live demos of each.

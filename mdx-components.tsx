@@ -12,6 +12,8 @@ import BundleChart from "@/components/blog/BundleChart";
 import EventLoopDemo from "@/components/blog/EventLoopDemo";
 import KeysDemo from "@/components/blog/KeysDemo";
 import StateSnapshotDemo from "@/components/blog/StateSnapshotDemo";
+import RequestWaterfall from "@/components/blog/RequestWaterfall";
+import RenderPipelineDemo from "@/components/blog/RenderPipelineDemo";
 
 const slug = (children: React.ReactNode) =>
   String(Array.isArray(children) ? children.join("") : children)
@@ -62,6 +64,8 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
     EventLoopDemo,
     KeysDemo,
     StateSnapshotDemo,
+    RequestWaterfall,
+    RenderPipelineDemo,
     ...components,
   };
 }

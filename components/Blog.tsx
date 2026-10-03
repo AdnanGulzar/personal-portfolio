@@ -22,7 +22,7 @@ export default function Blog() {
           </Link>
         </Reveal>
       </div>
-      <div className="mt-14 grid gap-5 md:grid-cols-2">
+      <div className="mt-14 grid grid-cols-1 gap-5 md:grid-cols-2">
         {posts.slice(0, 4).map((p, i) => (
           <Reveal key={p.slug} delay={i * 0.08} className="h-full">
             <BlogCard post={p} />
