@@ -20,6 +20,9 @@ export const ogImage = (pagePath: string, alt: string) => [
 /** Google Analytics 4 measurement ID ("G-XXXXXXX"). Analytics stays off while empty. */
 export const GA_ID = process.env.NEXT_PUBLIC_GA_ID || "";
 
+/** Cloudflare Web Analytics beacon token (cookieless). Stays off while empty. */
+export const CF_BEACON_TOKEN = process.env.NEXT_PUBLIC_CF_BEACON_TOKEN || "";
+
 /** Google Search Console HTML-tag verification code (the `content` value only). */
 export const GSC_VERIFICATION = process.env.NEXT_PUBLIC_GSC_VERIFICATION || "";
 

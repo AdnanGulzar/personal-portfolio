@@ -39,8 +39,11 @@ Already built in — just add your IDs:
 | Structured data (Person, WebSite, BlogPosting, Breadcrumbs) | `lib/seo.ts` → `components/JsonLd.tsx` |
 | `sitemap.xml` / `robots.txt` | `app/sitemap.ts`, `app/robots.ts` |
 | Google Analytics 4 + Core Web Vitals | `components/Analytics.tsx` |
+| Cloudflare Web Analytics (cookieless) | `components/Analytics.tsx` |
 
 **Google Analytics:** create a GA4 property → Admin → Data streams → Web → copy the Measurement ID (`G-…`). Add it as a repo variable `GA_MEASUREMENT_ID` (Settings → Secrets and variables → Actions → **Variables**) and redeploy. Locally, set `NEXT_PUBLIC_GA_ID` in `.env.local`. Real-user LCP / INP / CLS / FCP / TTFB arrive as GA events of the same name.
+
+**Cloudflare Web Analytics:** free and cookieless (no consent banner needed). In the Cloudflare dashboard → *Analytics & Logs* → *Web Analytics* → *Add a site* → enter `adnangul.com` and choose the manual JS snippet (the domain doesn't need to use Cloudflare DNS). Copy only the `token` value from the snippet, add it as repo variable `CF_BEACON_TOKEN` and redeploy. Locally, set `NEXT_PUBLIC_CF_BEACON_TOKEN` in `.env.local`.
 
 **Google Search Console:** add a **Domain** property for `adnangul.com` (verify with the DNS TXT record in GoDaddy), or a **URL prefix** property with the *HTML tag* method → copy only the `content="…"` value → save it as repo variable `GSC_VERIFICATION` → redeploy → click *Verify*. Then **Sitemaps** → submit `sitemap.xml`.
 
