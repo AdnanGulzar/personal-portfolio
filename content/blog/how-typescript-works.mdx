@@ -1,0 +1,176 @@
+TypeScript catches the typo, the missing `null` check and the wrong argument before you even save the file. It feels like a stricter JavaScript. But by the time your code runs, in the browser or in Node, **every type is gone**. The checking all happens at compile time and none of it survives to runtime.
+
+Once that clicks, most of TypeScript's surprises make sense: why `as` can lie to you, why API data needs validating, and why some tools "compile" TypeScript without checking it at all. This post covers how the compiler works, how it infers and narrows types, and where its guarantees stop.
+
+## Two jobs: checking and erasing
+
+The TypeScript compiler (`tsc`) does two separate things:
+
+1. **Type checking.** It reads your code and reports anything that doesn't add up.
+2. **Emitting.** It strips the types out and writes plain JavaScript.
+
+These two jobs are **independent**. By default, `tsc` still emits JavaScript when there are type errors (unless you set `noEmitOnError`). And most modern tools only do the second job: **esbuild, SWC, Babel and Vite strip types without checking them**, because stripping is fast and checking is slow. Recent versions of Node can even run `.ts` files directly by stripping the types as they load.
+
+In practice, your editor and a `tsc --noEmit` step in CI do the checking, and a fast bundler does the stripping.
+
+<Callout type="tip" title="Not everything erases cleanly">
+Most TypeScript syntax can simply be deleted. A few older features can't, because they generate real code: `enum`, `namespace` and constructor parameter properties. That's why newer projects often avoid them, and why TypeScript added the `erasableSyntaxOnly` option to ban them.
+</Callout>
+
+## Inside the compiler
+
+Under the hood, `tsc` works in stages, much like the engine in [How JavaScript works](/blog/how-javascript-works/):
+
+1. **Scanner and parser.** The source text becomes tokens, then an **AST** (abstract syntax tree).
+2. **Binder.** It links every name to a **symbol**, so it knows which `user` you mean in each scope.
+3. **Checker.** By far the biggest part. It works out the type of every expression and checks they're used correctly.
+4. **Emitter.** It writes `.js` files, plus `.d.ts` declaration files and source maps if you ask for them.
+
+Your editor runs the same compiler through a **language server**. That's where hover types, autocomplete, rename and red underlines come from: the checker is running as you type. Microsoft is also porting the compiler to Go (the project behind TypeScript 7) to make checking much faster on large codebases.
+
+## Structural typing: shape, not name
+
+TypeScript decides whether types fit together by their **shape**, not by their name. If an object has the right properties, it's accepted, wherever it came from:
+
+```ts
+type Point = { x: number; y: number };
+
+function draw(p: Point) { /* ... */ }
+
+const mouse = { x: 10, y: 20, pressed: true };
+draw(mouse);                        // OK: it has x and y, the extra property is fine
+
+draw({ x: 10, y: 20, pressed: true });
+// Error: Object literal may only specify known properties
+```
+
+The second call fails because of **excess property checks**, which apply only to object literals written inline. If you're typing the literal right there, an unknown property is probably a typo, so TypeScript flags it. Once the object is in a variable, only the shape matters.
+
+## Inference: types you never wrote
+
+Most types in good TypeScript code are **inferred**, not written. The checker works them out from values and usage:
+
+```ts
+let count = 0;                 // number
+const mode = "dark";           // "dark" (a const can never change, so it gets the literal type)
+const sizes = [1, 2, 3];       // number[]
+const user = { name: "Ada" };  // { name: string }
+
+const doubled = sizes.map((n) => n * 2); // n is number, doubled is number[]
+```
+
+Notice `let` gets the wide type `number`, but `const` gets the literal type `"dark"`. That's called **widening**. Annotate function parameters and public APIs, and let inference handle the rest.
+
+## Narrowing: types that change line by line
+
+A variable's declared type is only the starting point. As the compiler follows your `if`s and `return`s, it **narrows** the type to what's actually possible on each line. Click through it:
+
+<NarrowingDemo />
+
+The checks doing the narrowing (`=== null`, `typeof`, `Array.isArray`, `instanceof`, `"key" in obj`) are ordinary JavaScript that really runs. TypeScript understands what each one proves and updates the type to match. That's the core design idea: **TypeScript doesn't add runtime behaviour, it describes the JavaScript you already write.**
+
+### Discriminated unions and `never`
+
+Narrowing really pays off with **discriminated unions**: a set of object types that share a literal "tag" property.
+
+```ts
+type Result =
+  | { status: "loading" }
+  | { status: "success"; data: string[] }
+  | { status: "error"; message: string };
+
+function render(r: Result) {
+  switch (r.status) {
+    case "loading": return "Loading…";
+    case "success": return r.data.join(", "); // r.data exists here
+    case "error":   return r.message;         // r.message exists here
+    default:
+      const unreachable: never = r;            // compile error if a case is missing
+      return unreachable;
+  }
+}
+```
+
+Add a fourth status later and the `never` line becomes an error, pointing you straight at every `switch` that needs updating. A whole class of "forgot to handle the new case" bugs gets caught at compile time.
+
+## Where the guarantees stop
+
+Types describe what the compiler *believes*. A few features let you override that belief, and the compiler takes your word for it:
+
+- **`any`** switches checking off entirely, and it spreads: anything you get from an `any` is also `any`.
+- **`as` assertions** tell the compiler "trust me". Nothing checks them at runtime.
+- **Data from outside**: `JSON.parse`, `fetch().json()`, `localStorage`, environment variables, form input. Your types say what you *expect*, not what actually arrived.
+
+That last one causes most real bugs in typed code. Here the API has renamed a field, everything still compiles, and the code crashes at runtime. Run it, then look at the safe version underneath:
+
+<CodePlayground
+  template="vanilla-ts"
+  title="Types don't exist at runtime"
+  files={{
+    "/index.ts": [
+      'type User = { name: string; email: string };',
+      '',
+      '// Pretend this came from fetch(). The API renamed "email" to "mail".',
+      'const body = \'{"name":"Ada","mail":"ada@example.com"}\';',
+      '',
+      'const out: string[] = [];',
+      '',
+      '// ❌ Compiles fine: `as` is a promise to the compiler, not a check',
+      'const user = JSON.parse(body) as User;',
+      'try {',
+      '  out.push("Unsafe: " + user.email.toLowerCase());',
+      '} catch (e) {',
+      '  out.push("Unsafe crashed: " + (e as Error).message);',
+      '}',
+      '',
+      '// ✅ A type guard: a real runtime check that also narrows the type',
+      'function isUser(x: unknown): x is User {',
+      '  return typeof x === "object" && x !== null',
+      '    && typeof (x as User).name === "string"',
+      '    && typeof (x as User).email === "string";',
+      '}',
+      '',
+      'const data: unknown = JSON.parse(body);',
+      'if (isUser(data)) {',
+      '  out.push("Safe: " + data.email.toLowerCase());',
+      '} else {',
+      '  out.push("Safe: rejected bad data instead of crashing");',
+      '}',
+      '',
+      'document.body.innerHTML =',
+      '  "<ol style=\\"font: 15px/1.9 system-ui\\">" +',
+      '  out.map((m) => "<li>" + m + "</li>").join("") + "</ol>";',
+    ].join("\n"),
+  }}
+/>
+
+Prefer **`unknown`** over `any` for anything from outside: it forces you to check before you use it. For real APIs, a schema library like **Zod** or **Valibot** writes the type guard for you and gives you the TypeScript type from the same schema, so the runtime check and the static type can never drift apart.
+
+## Generics in one paragraph
+
+**Generics** are type parameters: they let a function keep track of the relationship between its input and output types instead of throwing that information away.
+
+```ts
+function first<T>(items: T[]): T | undefined {
+  return items[0];
+}
+
+first([1, 2, 3]);       // number | undefined
+first(["a", "b"]);      // string | undefined
+```
+
+Without the `<T>`, you'd have to pick `any` (and lose all checking) or write one version per type. With it, the compiler infers `T` at each call. Most of the generics you'll meet, like `Array<T>`, `Promise<T>` and `useState<T>`, are exactly this pattern.
+
+## Why this matters in practice
+
+- **Run the type checker in CI.** Your bundler almost certainly doesn't. Add `tsc --noEmit` as a build step.
+- **Turn on `strict`.** Without `strictNullChecks`, `null` and `undefined` fit everywhere, and the most common runtime error goes unnoticed.
+- **Validate at the edges, trust inside.** Check data once where it enters your app (API responses, request bodies, env vars), then let types carry that guarantee through the rest of the code.
+- **Treat `as` and `any` as warnings.** Each one is a place where you've told the compiler to stop checking.
+- **Let inference work.** Annotate function boundaries; leave local variables alone.
+
+<Callout type="info" title="The one-sentence version">
+TypeScript is a compile-time model of your JavaScript: the checker infers and narrows types to catch mistakes before the code runs, then every type is erased, so anything that crosses into your program at runtime has to be checked with real code.
+</Callout>
+
+TypeScript is now the default for server code too. [How Node.js works](/blog/how-nodejs-works/) covers what happens to that code once it's running on a server.

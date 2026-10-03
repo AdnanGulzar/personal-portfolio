@@ -1,0 +1,125 @@
+Node.js runs JavaScript on the server, using the same single-threaded language from the browser. And yet one Node process can comfortably serve thousands of users at once. How does one thread keep up with that many connections, and why can a single bad request make every other user wait?
+
+This post covers what Node is made of, how it handles I/O without blocking, how its event loop differs from the browser's, and the one rule that keeps a Node server fast. There's a demo where you can block a server yourself.
+
+## What Node actually is
+
+Node isn't a language or a framework. It's a **runtime**: a program that runs JavaScript and gives it access to the outside world. It's built from a few parts:
+
+- **V8**, the same JavaScript engine as Chrome. It parses, compiles and runs your code, exactly as described in [How JavaScript works](/blog/how-javascript-works/).
+- **libuv**, a C library that provides the **event loop**, asynchronous networking and file access, and a small **thread pool**.
+- **Bindings**, C++ glue that exposes those features to JavaScript.
+- **The standard library** (`fs`, `http`, `crypto`, `stream` and friends), mostly written in JavaScript on top of the bindings.
+
+The browser gives JavaScript the DOM and `fetch`. Node gives it files, sockets, processes and the operating system instead. The language and the engine are the same.
+
+## The big idea: don't wait, get called back
+
+A traditional server might give every connection its own thread. While that thread waits for the database, it sits idle but still costs memory. With ten thousand connections you need ten thousand threads.
+
+Node does the opposite. **Your JavaScript runs on one main thread**, and it never sits waiting for I/O. When you query a database or read a file, Node hands the job to the operating system or to libuv and moves straight on to the next piece of work. When the result is ready, your callback (or the code after `await`) is queued, and the event loop runs it.
+
+```js
+import { createServer } from "node:http";
+
+createServer(async (req, res) => {
+  const user = await db.findUser(req.url); // the thread is free while the DB works
+  res.end(JSON.stringify(user));            // runs later, when the result is back
+}).listen(3000);
+```
+
+While one request waits on the database, the same thread is parsing the next request, sending another response and running a timer. Most web servers spend most of their time *waiting*, so one thread that never waits goes a long way.
+
+## Where the waiting actually happens
+
+"Non-blocking" doesn't mean the work disappears. Someone still has to do it, and libuv uses two different strategies:
+
+- **Network I/O** (HTTP, TCP, database connections) uses the operating system's own notification systems (`epoll` on Linux, `kqueue` on macOS, IOCP on Windows). One thread can watch thousands of sockets and get told which ones are ready. No extra threads are needed.
+- **Everything the OS can't do asynchronously** goes to libuv's **thread pool**, which has **4 threads by default**. That covers most `fs` calls, `dns.lookup`, `zlib` compression, and expensive `crypto` work like `pbkdf2` and `scrypt`.
+
+The thread pool is small, and that has consequences. Hash five passwords at once with `crypto.pbkdf2` and the first four finish together, but the fifth has to wait for a free thread. You can raise the pool size with the `UV_THREADPOOL_SIZE` environment variable, but the real fix is usually to know which calls use it.
+
+<Callout type="info" title="So is Node single-threaded?">
+Your JavaScript is. Node itself is not: libuv's thread pool, V8's garbage collector and compiler threads all run in parallel. That's why "single-threaded" is only half true, and why it's still *your* code that decides whether the server stays responsive.
+</Callout>
+
+## Node's event loop has phases
+
+The browser's event loop has tasks, microtasks and rendering. Node's has no rendering, but it splits tasks into **phases** that it cycles through in order:
+
+1. **Timers.** Callbacks from `setTimeout` and `setInterval` whose time is up.
+2. **Pending callbacks.** Some system-level callbacks deferred from the previous loop.
+3. **Poll.** Fetch new I/O events and run their callbacks: incoming requests, finished reads, database responses. If there's nothing else to do, the loop waits here.
+4. **Check.** Callbacks from `setImmediate`, which always run right after the poll phase.
+5. **Close callbacks.** For example a socket's `"close"` event.
+
+Between *every* callback, Node empties two queues first: the **`process.nextTick` queue**, then the **promise microtask queue**. So `nextTick` runs before promises, and both run before the loop moves on:
+
+```js
+setTimeout(() => console.log("timeout"), 0);
+setImmediate(() => console.log("immediate"));
+process.nextTick(() => console.log("nextTick"));
+Promise.resolve().then(() => console.log("promise"));
+console.log("sync");
+
+// sync, nextTick, promise, then timeout and immediate
+```
+
+Those last two can come out in either order when called from the main module, because it depends on whether the 1 ms timer has expired by the time the loop starts. Inside an I/O callback, `setImmediate` always runs first, because the check phase comes straight after poll.
+
+<Callout type="warn" title="nextTick can starve the loop">
+Because the `nextTick` queue is emptied completely before anything else runs, a `nextTick` callback that schedules another `nextTick` stops the loop from ever reaching I/O. Prefer `queueMicrotask` or `setImmediate` unless you specifically need to run before everything else.
+</Callout>
+
+## The one rule: don't block the main thread
+
+Everything above depends on your JavaScript finishing quickly. While a callback runs, nothing else can: no new requests are accepted, no responses are sent, no timers fire. In the browser, a long task freezes one user's page. **On a server, it freezes every user at once.**
+
+Try it. Five users hit the same server. One requests a heavy report, and the other four want something quick:
+
+<BlockingDemo />
+
+When the heavy work is async I/O, the other users barely notice, because the main thread is free while it waits. When the same amount of work is synchronous JavaScript, everyone queues behind it. Moving that CPU work into a **worker thread** gives the same result as I/O: the main thread stays free.
+
+Common ways to block a Node server by accident:
+
+- **`*Sync` functions** in request handlers: `readFileSync`, `execSync`, `crypto.pbkdf2Sync`. They're fine at startup, never per request.
+- **Huge `JSON.parse` / `JSON.stringify` calls** on multi-megabyte payloads.
+- **CPU-heavy loops**: image processing, big sorts, report generation, compression in JavaScript.
+- **Regular expressions with catastrophic backtracking**, where a crafted input makes a regex take seconds. That's a real denial-of-service vector called ReDoS.
+
+## Using more than one core
+
+One Node process runs your JavaScript on one CPU core. To use the rest:
+
+- **Worker threads** (`node:worker_threads`) run JavaScript in parallel inside the same process. Each has its own V8 instance and event loop, and they talk by passing messages. Use them for CPU-heavy jobs.
+- **Multiple processes**, one per core, behind a load balancer. That's what the `cluster` module, PM2, or simply running several containers does. Each process is independent, so shared state belongs in a database or Redis, not in memory. It's the same idea as scaling out in [What is system design?](/blog/what-is-system-design/).
+
+## Streams: handling data bigger than memory
+
+Reading a 2 GB file into a string will crash a server or bring it to a crawl. **Streams** process data in chunks as it arrives:
+
+```js
+import { createReadStream } from "node:fs";
+import { createGzip } from "node:zlib";
+import { pipeline } from "node:stream/promises";
+
+// Compress a huge log file and send it, a chunk at a time, with constant memory use
+await pipeline(createReadStream("app.log"), createGzip(), res);
+```
+
+`pipeline` also handles **backpressure**: if the client downloads slowly, it pauses reading from disk instead of buffering the whole file in memory. It also cleans up every stream if one of them fails.
+
+## Why this matters in practice
+
+- **Keep every callback short.** If a request needs heavy CPU work, give it to a worker thread or a job queue, and keep the main thread for coordinating.
+- **Know which calls use the thread pool.** File access, `dns.lookup`, compression and crypto all share those 4 threads.
+- **Measure event loop delay.** `monitorEventLoopDelay()` from `node:perf_hooks` tells you how late the loop is running. If it climbs under load, something is blocking.
+- **Scale out with processes, not bigger machines.** One process per core, with state kept outside the process.
+- **Stream anything large** instead of loading it all at once.
+
+<Callout type="info" title="The one-sentence version">
+Node runs your JavaScript on one thread and hands every slow operation to the OS or a small thread pool, so one process can juggle thousands of connections, as long as no single piece of your code holds the thread for too long.
+</Callout>
+
+If you're building that server in TypeScript (and most Node backends now are), [How TypeScript works](/blog/how-typescript-works/) explains what the compiler checks, and what it can't check once your code is running.

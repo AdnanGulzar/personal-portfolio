@@ -16,6 +16,26 @@ export type Post = {
 
 export const posts: Post[] = [
   {
+    slug: "how-nodejs-works",
+    title: "How Node.js works: one thread, thousands of connections",
+    description:
+      "V8, libuv and the thread pool, the phases of Node's event loop, and why one blocking request slows down every user. With a demo where you block a server yourself.",
+    date: "2026-10-03",
+    readingTime: "11 min read",
+    tags: ["Node.js", "Backend", "Fundamentals"],
+    accent: "#84cc16",
+  },
+  {
+    slug: "how-typescript-works",
+    title: "How TypeScript works: inference, narrowing and type erasure",
+    description:
+      "What the compiler checks, how it infers and narrows types line by line, and why every type is gone at runtime. With a narrowing demo and a live playground.",
+    date: "2026-10-03",
+    readingTime: "11 min read",
+    tags: ["TypeScript", "Compilers", "Fundamentals"],
+    accent: "#6366f1",
+  },
+  {
     slug: "how-browsers-work",
     title: "How browsers work: from typing a URL to pixels on screen",
     description:

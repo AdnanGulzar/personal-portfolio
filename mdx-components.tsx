@@ -14,6 +14,8 @@ import KeysDemo from "@/components/blog/KeysDemo";
 import StateSnapshotDemo from "@/components/blog/StateSnapshotDemo";
 import RequestWaterfall from "@/components/blog/RequestWaterfall";
 import RenderPipelineDemo from "@/components/blog/RenderPipelineDemo";
+import BlockingDemo from "@/components/blog/BlockingDemo";
+import NarrowingDemo from "@/components/blog/NarrowingDemo";
 
 const slug = (children: React.ReactNode) =>
   String(Array.isArray(children) ? children.join("") : children)
@@ -66,6 +68,8 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
     StateSnapshotDemo,
     RequestWaterfall,
     RenderPipelineDemo,
+    BlockingDemo,
+    NarrowingDemo,
     ...components,
   };
 }

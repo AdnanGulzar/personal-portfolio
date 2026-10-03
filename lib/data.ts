@@ -21,7 +21,12 @@ export const profile = {
   resumeUrl: "/cv.pdf", // file lives in /public — empty hides the button
 };
 
-export const stats: { value: number; suffix: string; label: string; decimals?: number }[] = [
+export const stats: {
+  value: number;
+  suffix: string;
+  label: string;
+  decimals?: number;
+}[] = [
   { value: 6, suffix: "+", label: "Years experience" },
   { value: 10, suffix: "+", label: "Full stack apps delivered" },
   { value: 45, suffix: "%", label: "Faster annotation tooling" },
@@ -29,10 +34,26 @@ export const stats: { value: number; suffix: string; label: string; decimals?: n
 ];
 
 export const techMarquee = [
-  "React.js", "Next.js", "TypeScript", "JavaScript", "Redux Toolkit", "Zustand",
-  "RTK Query", "Tailwind CSS", "Material UI", "Framer Motion", "Node.js",
-  "NestJS", "Express", "MongoDB", "MySQL", "Redis", "BullMQ", "Docker",
-  "GitHub Actions", "AWS",
+  "React.js",
+  "Next.js",
+  "TypeScript",
+  "JavaScript",
+  "Redux Toolkit",
+  "Zustand",
+  "RTK Query",
+  "Tailwind CSS",
+  "Material UI",
+  "Framer Motion",
+  "Node.js",
+  "NestJS",
+  "Express",
+  "MongoDB",
+  "MySQL",
+  "Redis",
+  "BullMQ",
+  "Docker",
+  "GitHub Actions",
+  "AWS",
 ];
 
 export type SkillGroup = {
@@ -48,7 +69,16 @@ export const skillGroups: SkillGroup[] = [
     id: "frontend",
     label: "Frontend",
     description: "Modular, animated, performance-obsessed interfaces.",
-    orbit: ["React", "Next.js", "TypeScript", "Redux", "Zustand", "MUI", "SCSS", "Framer Motion"],
+    orbit: [
+      "React",
+      "Next.js",
+      "TypeScript",
+      "Redux",
+      "Zustand",
+      "MUI",
+      "SCSS",
+      "Framer Motion",
+    ],
     skills: [
       { name: "React.js / Next.js", level: 95 },
       { name: "TypeScript / JavaScript (ES6+)", level: 92 },
@@ -61,8 +91,18 @@ export const skillGroups: SkillGroup[] = [
   {
     id: "backend",
     label: "Backend",
-    description: "APIs, schemas, pipelines and queues that keep products running.",
-    orbit: ["Node.js", "Express", "NestJS", "WebSockets", "Redis", "BullMQ", "MongoDB", "MySQL"],
+    description:
+      "APIs, schemas, pipelines and queues that keep products running.",
+    orbit: [
+      "Node.js",
+      "Express",
+      "NestJS",
+      "WebSockets",
+      "Redis",
+      "BullMQ",
+      "MongoDB",
+      "MySQL",
+    ],
     skills: [
       { name: "Node.js / Express / NestJS", level: 88 },
       { name: "RESTful APIs / WebSockets / SSE", level: 88 },
@@ -76,7 +116,15 @@ export const skillGroups: SkillGroup[] = [
     id: "devops",
     label: "DevOps",
     description: "Containerised builds, CI/CD and cloud deploys.",
-    orbit: ["Git", "GitHub", "CI/CD", "Docker", "AWS EC2", "DigitalOcean", "Nginx"],
+    orbit: [
+      "Git",
+      "GitHub",
+      "CI/CD",
+      "Docker",
+      "AWS EC2",
+      "DigitalOcean",
+      "Nginx",
+    ],
     skills: [
       { name: "Git / GitHub", level: 92 },
       { name: "GitHub Actions (CI/CD)", level: 82 },
@@ -122,7 +170,20 @@ export const projects: Project[] = [
       "CI audit gate clearing high & critical vulnerabilities",
       "Hundreds of unit tests across services, repositories and listeners",
     ],
-    stack: ["TypeScript", "React", "Vite", "PrimeReact", "NestJS", "Prisma", "PostgreSQL", "Nx", "Keycloak", "Jest / Vitest", "Docker", "Git"],
+    stack: [
+      "TypeScript",
+      "React",
+      "Vite",
+      "PrimeReact",
+      "NestJS",
+      "Prisma",
+      "PostgreSQL",
+      "Nx",
+      "Keycloak",
+      "Jest / Vitest",
+      "Docker",
+      "Git",
+    ],
     year: "2025",
     role: "Senior full stack engineer",
     accent: "#06b6d4",
@@ -144,7 +205,14 @@ export const projects: Project[] = [
       "Bundle size cut by 25% with a Lighthouse score of 95+",
       "Team velocity up 40% through reusable component patterns",
     ],
-    stack: ["Next.js", "React", "TypeScript", "WebSockets", "Recharts", "React Hook Form"],
+    stack: [
+      "Next.js",
+      "React",
+      "TypeScript",
+      "WebSockets",
+      "Recharts",
+      "React Hook Form",
+    ],
     year: "2024",
     role: "Senior frontend developer",
     accent: "#3b82f6",
@@ -170,7 +238,7 @@ export const projects: Project[] = [
     year: "2026",
     role: "Solo project",
     accent: "#22d3ee",
-    liveUrl: "https://algo-simulator-murex.vercel.app/?mode=builtin&algo=push",
+    liveUrl: "https://algo-simulator.adnangul.com/",
     image: "/projects/algo-simulator.webp",
   },
   {
@@ -230,7 +298,14 @@ export const projects: Project[] = [
       "Design system reduced UI development time by 30%",
       "WCAG-compliant, responsive interfaces",
     ],
-    stack: ["Next.js", "Redux Toolkit", "RTK Query", "MUI", "Framer Motion", "GitHub Actions"],
+    stack: [
+      "Next.js",
+      "Redux Toolkit",
+      "RTK Query",
+      "MUI",
+      "Framer Motion",
+      "GitHub Actions",
+    ],
     year: "2023",
     role: "Full stack developer",
     accent: "#10b981",
@@ -250,7 +325,16 @@ export const projects: Project[] = [
       "Frontend performance metrics up 20% with lazy loading",
       "Hardened authentication and validation across the platform",
     ],
-    stack: ["React", "Node.js", "Express", "MongoDB", "Material UI", "Framer Motion", "JWT", "Docker"],
+    stack: [
+      "React",
+      "Node.js",
+      "Express",
+      "MongoDB",
+      "Material UI",
+      "Framer Motion",
+      "JWT",
+      "Docker",
+    ],
     year: "2023",
     role: "Frontend developer",
     accent: "#f59e0b",
