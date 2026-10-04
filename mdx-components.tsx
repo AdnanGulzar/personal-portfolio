@@ -16,6 +16,10 @@ import RequestWaterfall from "@/components/blog/RequestWaterfall";
 import RenderPipelineDemo from "@/components/blog/RenderPipelineDemo";
 import BlockingDemo from "@/components/blog/BlockingDemo";
 import NarrowingDemo from "@/components/blog/NarrowingDemo";
+import HiddenClassDemo from "@/components/blog/HiddenClassDemo";
+import SpecificityDemo from "@/components/blog/SpecificityDemo";
+import MinWidthDemo from "@/components/blog/MinWidthDemo";
+import ThreadPoolDemo from "@/components/blog/ThreadPoolDemo";
 
 const slug = (children: React.ReactNode) =>
   String(Array.isArray(children) ? children.join("") : children)
@@ -70,6 +74,10 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
     RenderPipelineDemo,
     BlockingDemo,
     NarrowingDemo,
+    HiddenClassDemo,
+    SpecificityDemo,
+    MinWidthDemo,
+    ThreadPoolDemo,
     ...components,
   };
 }

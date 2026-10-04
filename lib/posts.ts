@@ -16,12 +16,32 @@ export type Post = {
 
 export const posts: Post[] = [
   {
+    slug: "how-v8-works",
+    title: "How the V8 engine works: bytecode, JIT tiers and hidden classes",
+    description:
+      "How V8 parses lazily, runs bytecode in Ignition, tiers up through Sparkplug, Maglev and TurboFan, and uses hidden classes and inline caches to make dynamic objects fast.",
+    date: "2026-10-04",
+    readingTime: "11 min read",
+    tags: ["JavaScript", "V8", "Performance"],
+    accent: "#ef4444",
+  },
+  {
+    slug: "how-css-works",
+    title: "How CSS works: the cascade, specificity, layout and stacking",
+    description:
+      "How the browser picks one value per property, why specificity is compared column by column, why flex items won't shrink, and why z-index: 9999 doesn't work.",
+    date: "2026-10-04",
+    readingTime: "11 min read",
+    tags: ["CSS", "Layout", "Fundamentals"],
+    accent: "#0ea5e9",
+  },
+  {
     slug: "how-nodejs-works",
     title: "How Node.js works: one thread, thousands of connections",
     description:
-      "V8, libuv and the thread pool, the phases of Node's event loop, and why one blocking request slows down every user. With a demo where you block a server yourself.",
+      "V8 and libuv, what the 4-thread pool does (and doesn't) handle, the phases of Node's event loop, and why one blocking request slows down every user. With a demo where you block a server yourself.",
     date: "2026-10-03",
-    readingTime: "11 min read",
+    readingTime: "13 min read",
     tags: ["Node.js", "Backend", "Fundamentals"],
     accent: "#84cc16",
   },

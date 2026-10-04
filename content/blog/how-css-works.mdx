@@ -1,0 +1,112 @@
+CSS has a reputation for being unpredictable. You set a colour and it doesn't change. You set `z-index: 9999` and the element stays behind. A card stretches past the edge of the screen for no visible reason. But CSS isn't random. It's a set of precise algorithms, and once you know which one is in charge, the "weird" behaviour becomes predictable.
+
+This post covers how the browser decides which rule wins, how a value turns into pixels, and the layout and stacking rules behind most CSS bugs. There are two demos, and the second one is a real bug I fixed on this site.
+
+## CSS doesn't run, it resolves
+
+CSS isn't a list of commands carried out top to bottom. For **every element** on the page and **every CSS property** (there are hundreds), the browser answers one question: *what is this property's value for this element?*
+
+To answer it, the browser:
+
+1. **Collects** every declaration whose selector matches the element.
+2. **Sorts** them using the **cascade** to find the winner.
+3. If nothing matched, it **inherits** the value from the parent (for properties like `color` and `font-family`) or uses the property's **initial** value (for properties like `border` and `padding`).
+4. **Computes** the value: `2em` becomes pixels, `currentColor` becomes a real colour.
+5. Later, after layout, works out the **used** value. For example, `width: 50%` only becomes a pixel width once the parent's width is known.
+
+That's the "style" stage of the pipeline from [How browsers work](/blog/how-browsers-work/).
+
+<Callout type="tip" title="Selectors are read right to left">
+Browsers match selectors starting from the **rightmost** part. For `.sidebar ul li a`, the browser first finds every `a`, then checks whether each one has an `li` ancestor, and so on. That's why a selector ending in a common element like `a` or `div` costs more to match than one ending in a class.
+</Callout>
+
+## The cascade: who wins
+
+When several declarations set the same property on the same element, the cascade compares them in this order. **The first step that separates them decides the winner**, and later steps are never reached:
+
+1. **Origin and importance.** Browser default styles lose to the user's styles, which lose to yours (the author's). `!important` reverses that order, which is how users' accessibility settings can override sites.
+2. **Inline styles.** A `style="…"` attribute beats any selector.
+3. **Cascade layers.** With `@layer`, a layer declared later beats one declared earlier, and styles in no layer beat all layered styles.
+4. **Specificity.** The more specific selector wins.
+5. **Order of appearance.** If everything else is equal, the declaration that comes last wins.
+
+Specificity is the step people trip over most. Every selector gets three numbers: **IDs**, then **classes, attributes and pseudo-classes**, then **element types and pseudo-elements**. They're compared column by column, left to right, *not* added up into one score. One ID beats any number of classes. Type two selectors and see who wins:
+
+<SpecificityDemo />
+
+A few rules from the presets are worth remembering:
+
+- **`:is()`, `:not()` and `:has()`** take the specificity of their *most specific* argument. `:is(#main, p)` counts as an ID, even when it matched a `p`.
+- **`:where()`** always has zero specificity. That makes it perfect for library and reset styles that should be easy to override.
+- **The universal selector `*` and combinators** (` `, `>`, `+`, `~`) add nothing.
+
+<Callout type="warn" title="Specificity wars">
+If you find yourself writing `.page .content .card .title` or reaching for `!important` to beat another rule, the codebase has a specificity war. Keep selectors flat (one or two classes), put third-party CSS in a lower `@layer`, and use `:where()` for defaults.
+</Callout>
+
+## The box model
+
+Every element generates a box with four layers, from the inside out: **content**, **padding**, **border** and **margin**. The surprise is what `width` actually measures. By default (`box-sizing: content-box`) it sets only the content, so padding and borders are added on top:
+
+```css
+.card { width: 300px; padding: 20px; border: 1px solid; }
+/* content-box: actually 342px wide. border-box: exactly 300px. */
+```
+
+That's why almost every modern reset starts with `*, *::before, *::after { box-sizing: border-box; }`.
+
+Vertical margins between blocks also **collapse**: two stacked paragraphs with `margin: 20px` are 20px apart, not 40px, because the larger margin wins. Margins don't collapse inside flex and grid containers, which is one reason those layouts feel more predictable.
+
+## Layout: each element is in a formatting context
+
+How a box gets its size and position depends on its parent's **layout mode**:
+
+- **Flow layout** (the default). Block elements stack vertically and take the full width. Inline elements sit in lines of text and wrap.
+- **Flexbox** (`display: flex`). Children are laid out along one axis, and space is shared with `flex-grow`, `flex-shrink` and `flex-basis`.
+- **Grid** (`display: grid`). Children are placed in rows and columns defined on the container.
+- **Positioned** elements (`absolute`, `fixed`) are taken out of the flow and placed relative to their **containing block**: usually the nearest ancestor that has a `position` set.
+
+Most layout bugs come down to one of these algorithms behaving exactly as specified, but not as expected. Here's the most common one.
+
+### Why flex and grid items won't shrink
+
+Flex and grid items have a hidden default: **`min-width: auto`**. For these items it means "don't shrink below the width of your content". Normally that's helpful, because it stops text from being crushed. But when the content is a line of text that can't wrap, like a `nowrap` label meant to end in an ellipsis, "the width of your content" is the whole unwrapped line. Narrow the container and see:
+
+<MinWidthDemo />
+
+This exact rule caused a real bug on this site. On phones, the project cards were about 50px wider than the screen, so the whole page scrolled sideways. The grid's single column had no explicit size, so it grew to fit each card's one-line category label instead of truncating it. The fix was one class: an explicit `minmax(0, 1fr)` column.
+
+The same idea applies to grid in general. A `1fr` track is really `minmax(auto, 1fr)`, so it won't shrink below its content either. When grid columns overflow, use `minmax(0, 1fr)`.
+
+## Stacking: why z-index: 9999 doesn't work
+
+Elements are painted in a defined order, and `z-index` changes that order, but only **within the same stacking context**. A **stacking context** is a group of elements that's painted as a single unit, so everything inside it moves up or down together. Plenty of properties create one, not just `z-index`:
+
+- `position: relative`, `absolute` or `fixed` combined with a `z-index` value
+- `opacity` below 1
+- `transform`, `filter` or `perspective`
+- `isolation: isolate`
+- flex or grid children that have a `z-index`
+
+```html
+<div style="transform: translateZ(0); z-index: 1; position: relative">
+  <div class="modal" style="position: fixed; z-index: 9999">…</div>
+</div>
+<header style="position: relative; z-index: 2">…</header>
+```
+
+The modal can never appear above the header. Its `9999` only counts *inside* its parent's stacking context, and that whole context is painted at `z-index: 1`, below the header's `2`. The usual fixes are to render modals at the end of `<body>` (that's what React portals are for), or to use `isolation: isolate` on components so their internal `z-index` values can't leak out.
+
+## Why this matters in practice
+
+- **When a style doesn't apply, ask the cascade.** DevTools' Styles panel shows every matching rule with the losers crossed out, sorted in cascade order.
+- **Keep specificity low and flat.** Use classes, avoid IDs in selectors, use `:where()` for defaults and `@layer` for third-party CSS.
+- **Use `box-sizing: border-box` everywhere.**
+- **When something overflows in flex or grid, think `min-width: 0`.** Or `minmax(0, 1fr)` for grid tracks.
+- **When `z-index` doesn't work, find the stacking context.** Raising the number almost never helps.
+
+<Callout type="info" title="The one-sentence version">
+For every element and every property, the browser picks one value through the cascade (origin, layers, specificity, then order), computes it, and hands it to layout algorithms like flow, flex and grid, whose built-in rules, like min-width: auto and stacking contexts, explain most of what feels like weird CSS.
+</Callout>
+
+Changing a style also has a cost when it comes to repainting the page. [How browsers work](/blog/how-browsers-work/) has a demo showing which properties trigger layout, paint or only compositing.

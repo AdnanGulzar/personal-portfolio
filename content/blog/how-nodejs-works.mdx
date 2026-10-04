@@ -32,12 +32,75 @@ While one request waits on the database, the same thread is parsing the next req
 
 ## Where the waiting actually happens
 
-"Non-blocking" doesn't mean the work disappears. Someone still has to do it, and libuv uses two different strategies:
+"Non-blocking" doesn't mean the work disappears. Someone still has to do it. libuv sends it down one of **two completely different paths**, and mixing them up is one of the most common misunderstandings about Node.
 
-- **Network I/O** (HTTP, TCP, database connections) uses the operating system's own notification systems (`epoll` on Linux, `kqueue` on macOS, IOCP on Windows). One thread can watch thousands of sockets and get told which ones are ready. No extra threads are needed.
-- **Everything the OS can't do asynchronously** goes to libuv's **thread pool**, which has **4 threads by default**. That covers most `fs` calls, `dns.lookup`, `zlib` compression, and expensive `crypto` work like `pbkdf2` and `scrypt`.
+### Path 1: networking goes to the operating system
 
-The thread pool is small, and that has consequences. Hash five passwords at once with `crypto.pbkdf2` and the first four finish together, but the fifth has to wait for a free thread. You can raise the pool size with the `UV_THREADPOOL_SIZE` environment variable, but the real fix is usually to know which calls use it.
+Sockets (incoming HTTP requests, `fetch`, database and Redis connections) are handled by the **operating system kernel**, not by extra threads. Every major OS lets a single thread register thousands of sockets and later ask "which of these have data ready?":
+
+- `epoll` on Linux
+- `kqueue` on macOS
+- IOCP on Windows
+
+So with 10,000 users connected, Node doesn't use 10,000 threads, or even 4. The main thread tells the kernel which sockets to watch, then in the event loop's **poll phase** it asks which ones are ready and runs their callbacks. Nothing sits blocked waiting on a socket. **Networking never uses the thread pool**, and that's why one Node process can hold so many connections cheaply.
+
+### Path 2: the thread pool, for work the OS can't do asynchronously
+
+Some operations have no good "tell me when you're done" interface in the operating system, or they're just heavy CPU work. libuv runs those on its **thread pool**, which has **4 threads by default**:
+
+| Uses the thread pool | Why |
+|---|---|
+| Most `fs` calls (`fs.readFile`, `fs.stat`, `fs.promises.*`) | Ordinary file access blocks inside the OS, so a pool thread makes the blocking call for you |
+| `dns.lookup()`, which `http.get("https://example.com")` uses by default | It calls the OS's `getaddrinfo`, which blocks |
+| Async `crypto` work: `pbkdf2`, `scrypt`, `randomBytes` | Deliberately slow CPU work, like password hashing |
+| Async `zlib` compression (gzip, brotli) | CPU work |
+
+A pool thread does the blocking call or the CPU work. When it's finished, it queues the result, and the **main thread** runs your callback (or continues your `await`) on a later loop iteration. **Your JavaScript itself never runs on a pool thread.**
+
+```text
+              your JavaScript: one main thread running the event loop
+                 │                                   │
+   sockets       │ "watch these"                     │  fs, dns.lookup, crypto, zlib
+                 ▼                                   ▼
+  OS kernel (epoll / kqueue / IOCP)        libuv thread pool (4 threads)
+                 │                                   │
+                 └────────────── "done" ─────────────┘
+                                   ▼
+                  callback queued, then run on the main thread
+```
+
+### Why "only 4" matters
+
+All of those operations **share the same 4 threads**. Start five password hashes at once:
+
+```js
+const crypto = require("node:crypto");
+const start = Date.now();
+
+for (let i = 1; i <= 5; i++) {
+  crypto.pbkdf2("secret", "salt", 100_000, 64, "sha512", () => {
+    console.log(`hash ${i}: ${Date.now() - start} ms`);
+  });
+}
+
+// Example output on a machine with 4+ cores (exact times vary):
+// hash 1: 98 ms
+// hash 2: 99 ms
+// hash 3: 101 ms
+// hash 4: 102 ms
+// hash 5: 197 ms   ← waited for a free thread
+```
+
+The first four run in parallel, one per thread. The fifth has to queue until one of them finishes, so it takes about twice as long. On a real server, the side effect is easy to miss: a burst of logins can slow down **unrelated file reads and DNS lookups**, because they're queuing for the same threads. Ordinary HTTP traffic keeps flowing, because sockets don't use the pool. Try it:
+
+<ThreadPoolDemo />
+
+What you can do about it:
+
+- **Raise the pool size** with the `UV_THREADPOOL_SIZE` environment variable, for example `UV_THREADPOOL_SIZE=8 node server.js`. Set it before Node starts. For CPU work like hashing, it only helps up to about your number of CPU cores.
+- **Never use the `*Sync` versions** (`pbkdf2Sync`, `readFileSync`, `scryptSync`) in request handlers. They skip the pool and run **on the main thread**, which blocks every user instead of just the queue.
+- **Cut down on DNS lookups.** Reuse connections with keep-alive (Node's HTTP client does this by default since Node 19), so you don't do a DNS lookup and new connection for every request.
+- **Move sustained CPU work out of the process.** Worker threads or a separate job queue keep heavy work away from both the main thread and the shared pool.
 
 <Callout type="info" title="So is Node single-threaded?">
 Your JavaScript is. Node itself is not: libuv's thread pool, V8's garbage collector and compiler threads all run in parallel. That's why "single-threaded" is only half true, and why it's still *your* code that decides whether the server stays responsive.

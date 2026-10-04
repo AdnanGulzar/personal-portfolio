@@ -1,0 +1,116 @@
+[How JavaScript works](/blog/how-javascript-works/) gave the short version of what a JavaScript engine does: parse, interpret, optimise, deoptimise. This post zooms in on the engine most of us run every day: **V8**, the engine inside Chrome, Edge, Node.js, Deno and Electron.
+
+How can a language with no type declarations, where any object can gain or lose properties at any moment, run nearly as fast as compiled code? V8's answer is to **watch your code run, guess what it will do next, and compile for that guess**. There's a demo where you can watch one of those guesses hold, and then break.
+
+## From source text to an AST
+
+V8 starts with a string of source code. A **scanner** splits it into tokens (`function`, `add`, `(`, …) and a **parser** builds an **AST** (abstract syntax tree) from them.
+
+Parsing is expensive, and most of the code on a typical page is never called. So V8 parses **lazily**. For a function that isn't called straight away, it runs a quicker **pre-parser**. That only checks the syntax and notes which outer variables the function uses. The full parse happens the first time the function is actually called.
+
+V8 also caches its compilation results. On a repeat visit, Chrome can skip parsing and compiling scripts it has seen before, which is one reason a site loads faster the second time.
+
+## Ignition: start running quickly
+
+The AST is compiled into **bytecode**, a compact set of instructions for V8's interpreter, **Ignition**. You can see it yourself with `node --print-bytecode`. For this function:
+
+```js
+function add(a, b) {
+  return a + b;
+}
+```
+
+Ignition's bytecode is roughly:
+
+```text
+Ldar a1        // load b into the accumulator
+Add a0, [0]    // add a to it, recording what types it saw in feedback slot 0
+Return         // return the accumulator
+```
+
+That `[0]` is the important part. As the bytecode runs, Ignition fills in a **feedback vector**: a record for each operation of the types and object shapes it has actually seen. Did `+` only ever see small integers? Did `obj.x` only ever see one kind of object? Everything later in the pipeline relies on this feedback.
+
+## Tiering up: four compilers
+
+Bytecode starts fast but runs slowly. When a function gets **hot** (called often, or containing a busy loop), V8 recompiles it with progressively more aggressive compilers:
+
+| Tier | What it does | Trade-off |
+|---|---|---|
+| **Ignition** | Interprets bytecode and collects feedback | Starts instantly, runs slowest |
+| **Sparkplug** | Translates bytecode straight into machine code, with no optimisation | Very cheap to compile, noticeably faster |
+| **Maglev** | Optimises quickly using the feedback | Fast to compile, good code |
+| **TurboFan** | Optimises heavily: inlining, removing type checks, eliminating dead code | Slow to compile, fastest code |
+
+Short-lived code never leaves Ignition, so V8 doesn't waste time compiling it. Code that runs millions of times ends up in TurboFan. Each tier only pays its compile cost once the code has run enough to deserve it.
+
+## Speculation and deoptimisation
+
+The optimising tiers don't compile for every possible type. They compile for the types the feedback has seen. If `add` has only ever received small integers, TurboFan can emit a single machine-level integer addition, guarded by a cheap check that the inputs really are small integers.
+
+If that check ever fails, V8 **deoptimises**. It throws the optimised code away, rebuilds the interpreter's state at exactly the right point, and continues in Ignition, with the new type now recorded in the feedback:
+
+```js
+for (let i = 0; i < 1e6; i++) add(i, 1);  // hot, all integers → optimised for integers
+add("a", "b");                             // a string! → deoptimise, back to Ignition
+```
+
+A single deopt is harmless. But a function that keeps getting optimised and deoptimised (a "deopt loop") is a real performance problem, and it usually comes from code that sees many different types.
+
+<Callout type="tip" title="Watch it happen">
+Run a script with `node --trace-opt --trace-deopt app.js` and V8 will log every function it optimises, and why it bailed out when it deoptimises.
+</Callout>
+
+## Hidden classes: giving objects a shape
+
+In a language like C++, the compiler knows every object's layout ahead of time, so reading `point.x` is just "load memory at offset 0". JavaScript objects are dictionaries that can change at any time, so a naive engine would need a slow hash table lookup on every property read.
+
+V8 avoids that by giving every object a **hidden class** (V8 calls them **Maps**; other engines say "shapes"). A hidden class records which properties an object has and **in which slot** each one is stored. Objects that get the same properties *in the same order* share a hidden class:
+
+```js
+const a = { x: 1, y: 2 };
+const b = { x: 3, y: 4 };   // same hidden class as a
+const c = { y: 5, x: 6 };   // different order → a different hidden class
+```
+
+Adding a property moves an object to a new hidden class along a **transition chain** (`{}` → `+x` → `+y`). V8 reuses those chains, so a million objects built the same way all share one hidden class.
+
+## Inline caches: remembering the answer
+
+Each property access in your code (each `obj.x` in the source, not each object) gets an **inline cache**. The first time it runs, V8 looks up where `x` lives and stores the hidden class and slot in the cache. Next time, if the object has the same hidden class, it can skip the lookup and read straight from that slot.
+
+How well this works depends on how many different shapes reach that one line of code. Try it:
+
+<HiddenClassDemo />
+
+Pass only `{ x, y }` objects and the cache stays **monomorphic**, the fastest state. Mix in `{ y, x }`, which holds the same data in a different order, and it becomes **polymorphic**. Pass five or more different shapes and it goes **megamorphic**, where V8 stops caching and does a slower generic lookup. The optimising compilers rely on these caches too, so a megamorphic access also makes the surrounding code harder to optimise.
+
+## Numbers and arrays
+
+V8 also specialises how it stores values:
+
+- **Small integers ("Smis")** are stored directly in the value itself, with no memory allocation. Other numbers, like `0.5` or very large integers, are stored as **heap numbers**: separate objects that hold a 64-bit float.
+- Arrays track their **elements kind**. An array of small integers is stored most compactly. Put a float in it and it moves to a "doubles" kind. Put a string or object in it and it becomes generic. These transitions **only go one way**: removing the string later doesn't bring the fast kind back.
+- **Holes** (`new Array(100)`, or `arr[50] = 1` on an empty array) move an array to a "holey" kind. Every read then has to check for missing elements, and possibly walk up the prototype chain.
+
+## The garbage collector
+
+V8's garbage collector (called **Orinoco**) relies on one observation: **most objects die young**. Temporary arrays, intermediate strings and callback closures often become garbage within milliseconds. So the heap is split in two:
+
+- **The young generation** is small and collected often by the **Scavenger**. It copies the few surviving objects to a fresh area and reclaims everything else in one go. Because so few objects survive, this is very fast.
+- **The old generation** holds objects that survived a couple of scavenges. It's collected less often, with **mark-sweep-compact**: find everything reachable, free the rest, and occasionally move objects together to reduce fragmentation.
+
+To avoid long pauses, much of the marking happens **concurrently** on helper threads while your JavaScript keeps running, and V8 schedules work for when the main thread is idle. The pauses that remain are usually a few milliseconds.
+
+## Why this matters in practice
+
+- **Initialise objects the same way.** Assign every property in the constructor (or object literal), always in the same order, even if some start as `null`. Then objects of the same type share one hidden class.
+- **Avoid `delete` on hot objects.** Deleting a property can push an object into slow "dictionary mode". Setting it to `undefined` keeps the shape.
+- **Keep functions monomorphic where it matters.** A hot function that handles five unrelated object shapes will be slower than five specialised ones.
+- **Keep arrays packed and of one type.** Avoid holes, and don't mix numbers and strings in arrays you loop over a lot.
+- **Measure before you micro-optimise.** These effects matter in hot paths: tight loops, parsers, rendering libraries. In ordinary app code, a better algorithm or one less network request beats all of them.
+
+<Callout type="info" title="The one-sentence version">
+V8 starts running your code straight away as bytecode, records the types and object shapes it actually sees, and recompiles hot code into machine code that assumes those observations hold, quietly falling back to bytecode whenever they don't.
+</Callout>
+
+V8 also powers Node.js. [How Node.js works](/blog/how-nodejs-works/) covers what libuv adds around it to run JavaScript on servers.
