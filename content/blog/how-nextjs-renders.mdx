@@ -1,0 +1,203 @@
+Every page on a Next.js site goes through the same steps: data is fetched, React renders components to HTML, the HTML reaches the browser, and JavaScript makes it interactive. The rendering modes you hear about (**SSG, ISR, SSR, streaming** and now **partial prerendering**) don't change those steps. They change **when** each one happens and **where**: at build time or on each request, on a CDN or on your server, all at once or in pieces.
+
+This post covers what each mode does, what it costs, and how Next.js decides which one a page uses, which is often not the one you expected. There are two demos: one comparing the modes on the same page, and one showing who sees stale data with ISR. Examples use Next.js 16.
+
+## The steps every page goes through
+
+Whichever mode you use, a page always needs these four steps:
+
+1. **Get the data.** Query a database, call an API, read a file.
+2. **Render to HTML.** React runs your components and produces markup.
+3. **Deliver it.** The HTML travels to the browser, ideally from somewhere close.
+4. **Hydrate.** The browser downloads the JavaScript, and React attaches event handlers to the HTML that's already on screen, making it interactive.
+
+The rendering modes are just different answers to "when do steps 1 and 2 run?" Here's the same page, rendered six ways:
+
+<RenderModesDemo />
+
+## SSG: render once, at build time
+
+With **static site generation**, `next build` fetches the data and renders the HTML once. The output is plain files that any CDN can serve, so every visitor gets a page from a server near them, and no code runs per request.
+
+In the App Router, this is the **default**. A page that doesn't use request-time information is prerendered automatically. For dynamic routes like `/blog/[slug]`, `generateStaticParams` tells Next.js which pages to build:
+
+```tsx
+// app/blog/[slug]/page.tsx
+export async function generateStaticParams() {
+  const posts = await getPosts();
+  return posts.map((p) => ({ slug: p.slug }));
+}
+
+export default async function Post({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  const post = await getPost(slug);
+  return <article>{post.title}</article>;
+}
+```
+
+That's exactly how this site works. It uses `output: "export"`, which makes the whole site static, so it can be hosted on any static file host. The trade-off is simple: **the content is only as fresh as your last build.** Fine for a blog, wrong for stock levels.
+
+## ISR: static, but refreshed in the background
+
+**Incremental static regeneration** keeps the speed of static pages but lets them update without a full rebuild. You give a page a lifetime:
+
+```tsx
+export const revalidate = 60; // seconds
+```
+
+(That's the default rendering model. With Cache Components turned on, covered in the partial prerendering section below, you set the lifetime with `cacheLife` inside a `"use cache"` function instead.)
+
+ISR doesn't regenerate the page every 60 seconds on a timer. It uses a pattern called **stale-while-revalidate**:
+
+1. For the first 60 seconds after a page is generated, every request gets the cached page.
+2. The first request **after** that still gets the cached (now stale) page, instantly, but it triggers a regeneration in the background.
+3. Once the new page is ready, it replaces the old one for everyone after that.
+
+So nobody waits for a render, but someone always sees the old version first. Move the price change around and see who's affected:
+
+<ISRDemo />
+
+When stale data isn't acceptable, don't rely on the timer. Revalidate **on demand** from the Server Action or webhook that changes the data:
+
+- `revalidatePath("/products/42")` marks one page as stale.
+- `revalidateTag("products", "max")` marks everything tagged `products` as stale. In Next.js 16 the second argument (a cache profile) is required. `"max"` keeps the stale-while-revalidate behaviour: the next visitor still gets the old page instantly while the new one is built.
+- `updateTag("products")`, called from a Server Action, expires the data immediately, so the next request waits for fresh data. Use it when the user who made the change must see it straight away.
+
+<Callout type="warn" title="ISR needs a server">
+ISR isn't magic on a static host. The cache and the background regeneration need a running Next.js server (`next start`), or a platform that implements them, like Vercel or an adapter such as OpenNext. If you run several servers, they also need a **shared cache**, or each one will regenerate and serve its own version.
+</Callout>
+
+## SSR: render on every request
+
+With **server-side rendering**, the server fetches data and renders HTML fresh for each request. Use it when the page depends on **who is asking** (their session, cookies, location) or must be up to the second.
+
+The cost shows in the demo. The server can't send a single byte until the data fetch has finished, so a slow query means a blank tab, and you pay for that work on every request. SSR also can't be cached on a CDN, so every request travels all the way to your origin server.
+
+### Why a page becomes dynamic when you didn't ask
+
+In the default rendering model, you rarely choose SSR explicitly. Next.js **switches a route to dynamic rendering** as soon as it uses something that's only known at request time:
+
+- `cookies()` or `headers()`
+- the `searchParams` prop
+- `fetch` with `cache: "no-store"`
+- `connection()`, or other request-time APIs
+
+One `cookies()` call in a shared layout (to show "Hi, Ada" in the header, say) can quietly make **every page under that layout** dynamic. The `next build` output marks each route as static or dynamic, so check it after any change to shared layouts. This all-or-nothing behaviour is exactly what partial prerendering, below, was designed to fix.
+
+## Streaming: send what's ready, then the rest
+
+SSR's weakness is that the whole page waits for its slowest part. **Streaming** fixes that. Wrap the slow part in `<Suspense>` and the server sends the rest straight away:
+
+```tsx
+import { Suspense } from "react";
+
+export default function ProductPage() {
+  return (
+    <>
+      <Header />                       {/* sent immediately */}
+      <ProductInfo />                  {/* fast query, sent immediately */}
+      <Suspense fallback={<ReviewsSkeleton />}>
+        <Reviews />                    {/* slow query, streamed in when ready */}
+      </Suspense>
+    </>
+  );
+}
+```
+
+The response is one long HTTP response that stays open. First comes the page shell with the skeleton in place. When `<Reviews />` finishes on the server, React sends its HTML down the same connection, along with a tiny inline script that swaps it into place. No extra request is made. A `loading.tsx` file does the same for a whole route segment.
+
+React also **hydrates selectively**: each streamed section becomes interactive as soon as it arrives. If the user clicks something that isn't hydrated yet, React prioritises that part.
+
+## Partial prerendering: a static shell with dynamic holes
+
+Every mode so far makes a choice for the **whole route**. A product page is identical for every visitor except for the cart count in the header, but one `cookies()` call for that count makes the entire page dynamic. Everyone then waits on the origin server for content that could have come from a CDN.
+
+**Partial prerendering (PPR)** removes that trade-off. At build time, Next.js prerenders everything it can into a **static shell**, and leaves holes where request-time content goes. At request time, the shell is sent straight away (from a CDN, where the platform supports it), and only the holes are rendered on the server and streamed into the same response.
+
+In Next.js 16, PPR comes with **Cache Components**, which you turn on in the config. (The earlier `experimental.ppr` flag has been merged into this option.)
+
+```ts
+// next.config.ts
+const nextConfig = { cacheComponents: true };
+export default nextConfig;
+```
+
+With it on, the static shell is built from three things:
+
+- **Content that doesn't depend on the request**, like your layout and text, which is prerendered automatically.
+- **Anything marked `"use cache"`**, which is cached and included in the shell, refreshed according to its `cacheLife`.
+- **`<Suspense>` fallbacks.** The fallback goes into the shell, and the content inside streams in at request time.
+
+```tsx
+import { Suspense } from "react";
+import { cookies } from "next/headers";
+import { cacheLife, cacheTag } from "next/cache";
+
+export default function ProductPage() {
+  return (
+    <>
+      <Header />                                    {/* static: in the shell */}
+      <ProductDetails />                            {/* cached: in the shell */}
+      <Suspense fallback={<CartSkeleton />}>        {/* fallback in the shell */}
+        <Cart />                                    {/* streams per request */}
+      </Suspense>
+    </>
+  );
+}
+
+async function ProductDetails() {
+  "use cache";
+  cacheLife("hours");
+  cacheTag("products");
+  const product = await db.product.find(42);
+  return <h1>{product.name}</h1>;
+}
+
+async function Cart() {
+  const session = (await cookies()).get("session")?.value;
+  const items = await getCart(session);
+  return <p>{items.length} items in your cart</p>;
+}
+```
+
+Here `cookies()` no longer makes the whole route dynamic. It only affects the `<Cart />` hole, because it's inside a `<Suspense>` boundary. The header and product details still arrive instantly from the shell.
+
+### What changes when Cache Components is on
+
+Cache Components replaces several older behaviours, so it's more than a switch you flip:
+
+- **Nothing is cached unless you say so.** Data fetches aren't cached by default. Mark the functions or components you want cached with `"use cache"`, and give them a lifetime with `cacheLife` and a tag with `cacheTag`.
+- **Uncached and request-time data must be inside `<Suspense>`.** If a component awaits uncached data or calls `cookies()` outside a boundary, the dev overlay reports a "blocking route" and suggests a fix, so every route keeps a static shell.
+- **Route segment config goes away.** `export const revalidate`, `dynamic` and `fetchCache` cause errors when Cache Components is on. Use `cacheLife` instead of `revalidate`.
+- **Random values and timestamps need a decision.** `Date.now()`, `Math.random()` and `crypto.randomUUID()` during prerendering are build errors. Either call `connection()` first, inside a `<Suspense>` boundary, to get a fresh value per request, or put them in `"use cache"` to share one value.
+
+<Callout type="tip" title="Await as late as you can">
+The higher up the tree you `await` request data, the less of the page can go in the shell. A layout that awaits `params` or `cookies()` at the top puts everything below it in a hole. Pass the promise down and await it in the small component that needs it, inside its own `<Suspense>`, and the rest of the layout stays static.
+</Callout>
+
+PPR needs a server, or a platform that supports it, to render the holes at request time. A fully static export like this site has no server, so it can't use PPR. Search engine crawlers are also handled differently: because they need a complete document, Next.js skips the shell for them and renders the whole page at request time.
+
+## Hydration: the cost every mode shares
+
+Whatever the mode, the HTML that arrives is only a picture until **hydration** finishes. With the App Router, only **Client Components** (files starting with `"use client"`) send their JavaScript to the browser and hydrate. **Server Components** render to HTML on the server, and their code never reaches the browser.
+
+That makes the `"use client"` boundary one of the biggest performance decisions in a Next.js app. Put it on a small interactive button, not on the whole page. The [frontend performance post](/blog/frontend-performance/) shows what extra JavaScript costs on a real device.
+
+## Choosing a mode
+
+| If the page… | Use | Because |
+|---|---|---|
+| Is the same for everyone and rarely changes | **SSG** | Fastest, cheapest, can't go down with your server |
+| Is the same for everyone but changes sometimes | **ISR** + on-demand revalidation | Static speed, fresh within seconds of a change |
+| Depends on the user or must be live | **SSR** | Rendered with the request's cookies and headers |
+| Is dynamic but has slow parts | **SSR + streaming** | Shell first, slow sections as they're ready |
+| Is mostly the same for everyone, with a few per-user parts | **PPR** (Cache Components) | Static shell from the CDN, only the personal parts rendered per request |
+| Is a logged-in dashboard full of interaction | Server shell + client components | Render the layout on the server, fetch live data in the browser |
+
+You also don't choose once per app. Each route, and with streaming or PPR each section of a route, can use a different strategy.
+
+<Callout type="info" title="The one-sentence version">
+Every Next.js page fetches data, renders HTML, delivers it and hydrates; SSG does the first two at build time, ISR does them at build and again in the background, SSR does them on every request, streaming sends each part as soon as it's ready, and PPR prerenders a static shell while rendering only the dynamic holes per request.
+</Callout>
+
+The rendering mode decides where HTML is built. What happens after it reaches the browser is in [How browsers work](/blog/how-browsers-work/), and the component model underneath is in [How React works](/blog/how-react-works/). For how these modes compare with techniques outside Next.js, like islands and resumability, see [Frontend rendering techniques](/blog/frontend-rendering-techniques/).

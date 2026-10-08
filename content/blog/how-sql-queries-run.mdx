@@ -1,0 +1,128 @@
+SQL is **declarative**: you describe *what* you want, and the database decides *how* to get it. That's what makes a five-line query so convenient, and also what makes it puzzling when the same query takes 2 ms one day and 20 seconds the next. Behind every query is a plan the database chose for you.
+
+This post follows a query through the database: parsing, planning, executing, and what changes when you write data. It uses PostgreSQL for examples, but MySQL, SQL Server and SQLite work in very similar ways. There are two demos: the order a query really runs in, and a planner deciding whether to use your index.
+
+## The journey of a query
+
+When your app sends `SELECT * FROM users WHERE email = $1`, the database runs it through four stages:
+
+1. **Parse.** Check the syntax and turn the text into a tree. A typo fails here.
+2. **Analyse.** Look up the tables and columns in the catalog, check they exist and that you're allowed to read them, and work out the types.
+3. **Plan.** The **query planner** (or optimiser) generates the possible ways to run the query, estimates the cost of each, and picks the cheapest.
+4. **Execute.** Run the chosen plan and stream rows back to you.
+
+The planning step is the interesting one. Your SQL says nothing about which index to use, which table to read first or how to join them. The planner decides all of that, every time.
+
+## The order a query actually runs in
+
+You write `SELECT` first, but the database evaluates it almost last. The **logical order** of a query is:
+
+**FROM → WHERE → GROUP BY → HAVING → SELECT → ORDER BY → LIMIT**
+
+Step through it on real data:
+
+<QueryOrderDemo />
+
+This order explains several classic errors:
+
+- **You can't use a `SELECT` alias in `WHERE`.** When `WHERE` runs, `spent` hasn't been computed yet.
+- **`WHERE` can't use aggregates; `HAVING` can.** `WHERE` filters rows *before* grouping, `HAVING` filters groups *after*.
+- **`LIMIT 10` isn't automatically cheap.** If there's an `ORDER BY` with no index to provide the order, the database has to produce and sort *every* row before it can return the first 10.
+
+<Callout type="info" title="Logical, not physical">
+This is the order the *result* is defined in, not necessarily the order of the work. The planner can rearrange anything as long as the answer is the same. For example, it often applies a `WHERE` filter inside a join, or reads rows already sorted from an index so it can skip the sort.
+</Callout>
+
+## How the planner chooses
+
+To compare plans, the planner needs to guess how many rows each step will produce. It gets those guesses from **statistics**: for each column, the database keeps a sample-based summary, including the most common values, a histogram of the rest, and an estimate of how many distinct values there are. `ANALYZE` refreshes them (autovacuum does this in the background in PostgreSQL).
+
+With those estimates, the planner gives each candidate plan a **cost**. In PostgreSQL's model, reading a page of the table in order costs 1, and jumping to a random page costs 4, because random reads are much slower on real disks. Then it picks the plan with the lowest cost.
+
+Most "the database suddenly got slow" incidents come from here. If the statistics are stale or misleading, the planner's estimates are wrong, it picks a bad plan, and nothing in your code changed.
+
+## Indexes: how a lookup skips the table
+
+Without an index, finding one user by email means a **sequential scan**: read all million rows and check each one. An **index** is a separate structure, usually a **B-tree**, that keeps the column's values sorted, with a pointer to each row.
+
+A B-tree is very wide and very shallow. Each node holds hundreds of keys, so even millions of rows fit in a tree **3 or 4 levels deep**. Finding one email means reading about 4 index pages instead of 10,000 table pages. Sorted order also means the same index can answer ranges (`created_at > …`) and give rows back already sorted (`ORDER BY created_at`).
+
+But an index isn't always faster, and the planner knows it. Try it:
+
+<QueryPlanDemo />
+
+The `country = 'UK'` case surprises people. When a filter matches a large share of the table, visiting each matching row through the index (a random jump per row) costs more than reading the whole table in order. So the planner does a full scan, even though you created an index.
+
+A few rules that follow from how B-trees work:
+
+- **Wrapping the column in a function disables the index.** `WHERE lower(email) = …` can't use an index on `email`. Create an index on the expression instead: `CREATE INDEX ON users (lower(email))`.
+- **Composite indexes work from the left.** An index on `(country, created_at)` helps `WHERE country = 'UK' AND created_at > …` and `WHERE country = 'UK'`, but not `WHERE created_at > …` alone. It's sorted by country first, like a phone book sorted by surname.
+- **`LIKE 'abc%'` can use an index, `LIKE '%abc'` can't.** A sorted index can find a prefix, not a suffix.
+- **Covering indexes skip the table entirely.** If the index contains every column the query needs (`CREATE INDEX … INCLUDE (name)`), the database can answer from the index alone with an **index-only scan**.
+
+<Callout type="warn" title="Indexes aren't free">
+Every index has to be updated on every `INSERT`, `UPDATE` and `DELETE` that touches its columns, and it takes disk space and memory. Index the columns your real queries filter, join and sort on, and drop indexes nothing uses.
+</Callout>
+
+## Joins: three algorithms
+
+When a query joins two tables, the planner chooses how:
+
+- **Nested loop.** For each row on one side, look up matches on the other side, ideally through an index. Great when one side is small.
+- **Hash join.** Build an in-memory hash table from the smaller side, then scan the larger side and probe it. Great for large, unsorted inputs with an equality condition.
+- **Merge join.** If both sides are already sorted on the join key (for example from indexes), walk through them together like a zip. Great for large, sorted inputs.
+
+A bad row estimate here is expensive. If the planner thinks a side has 10 rows and it really has 10 million, it might pick a nested loop and run 10 million index lookups instead of one hash join.
+
+## Reading EXPLAIN
+
+`EXPLAIN` shows the plan the planner picked. `EXPLAIN ANALYZE` actually runs the query and adds the real timings and row counts:
+
+```sql
+EXPLAIN ANALYZE
+SELECT o.id, o.total
+FROM orders o
+JOIN users u ON u.id = o.user_id
+WHERE u.email = 'ada@example.com';
+```
+
+The output looks something like this (trimmed, and numbers will differ on your data):
+
+```text
+Nested Loop  (cost=0.85..24.10 rows=5 width=12) (actual time=0.041..0.058 rows=7 loops=1)
+  ->  Index Scan using users_email_idx on users u  (cost=0.42..8.44 rows=1 width=4) (actual ... rows=1 loops=1)
+        Index Cond: (email = 'ada@example.com'::text)
+  ->  Index Scan using orders_user_id_idx on orders o  (cost=0.43..15.61 rows=5 width=16) (actual ... rows=7 loops=1)
+        Index Cond: (user_id = u.id)
+Planning Time: 0.210 ms
+Execution Time: 0.081 ms
+```
+
+Read it from the **innermost, most indented** lines outwards, because that's where the data comes from. Then look for three things:
+
+1. **`Seq Scan` on a big table** where you expected an index.
+2. **Estimated `rows=` far from actual `rows=`.** That's a planner working from bad statistics.
+3. **Where the time goes.** The `actual time` on each node shows which step is slow.
+
+## What happens when you write
+
+Reads are only half the story. When you `UPDATE` a row, PostgreSQL doesn't overwrite it in place:
+
+- **The write-ahead log (WAL) comes first.** The change is appended to a sequential log on disk *before* the table itself is updated. If the server crashes, it replays the log on restart. That's how a committed transaction survives a power cut.
+- **MVCC keeps old versions.** An update writes a *new* version of the row and marks the old one as expired. Readers that started earlier keep seeing the old version, so **readers don't block writers and writers don't block readers**. Old versions are cleaned up later by `VACUUM`.
+- **Locks protect conflicting writes.** Two transactions updating the *same* row still have to queue, which is why one hot row (a global counter, say) can limit throughput for the whole app.
+
+## Why this matters in practice
+
+- **Run `EXPLAIN ANALYZE` on slow queries** before guessing. The plan tells you what's wrong.
+- **Index for your actual queries.** Look at what you filter, join and sort on, and remember composite indexes work from the left.
+- **Don't wrap indexed columns in functions** in `WHERE`, or index the expression.
+- **Watch out for N+1 queries.** Loading 50 users and then running one query each for their orders is 51 round trips. One join, or one `WHERE user_id IN (…)`, is one.
+- **Paginate with keys, not `OFFSET`.** `OFFSET 100000` still reads and throws away 100,000 rows. `WHERE id > $last_id ORDER BY id LIMIT 20` jumps straight there with an index.
+- **Select only the columns you need.** It sends less data and makes index-only scans possible.
+
+<Callout type="info" title="The one-sentence version">
+The database parses your SQL, estimates the cost of every way it could run it using statistics about your data, executes the cheapest plan, and that plan (not the SQL text) is what decides whether a query takes milliseconds or minutes.
+</Callout>
+
+A fast query is the first step in scaling. [How to scale a system](/blog/how-to-scale-a-system/) covers what to do when one database is no longer enough.

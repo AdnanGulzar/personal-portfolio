@@ -20,6 +20,14 @@ import HiddenClassDemo from "@/components/blog/HiddenClassDemo";
 import SpecificityDemo from "@/components/blog/SpecificityDemo";
 import MinWidthDemo from "@/components/blog/MinWidthDemo";
 import ThreadPoolDemo from "@/components/blog/ThreadPoolDemo";
+import RenderModesDemo from "@/components/blog/RenderModesDemo";
+import ISRDemo from "@/components/blog/ISRDemo";
+import QueryOrderDemo from "@/components/blog/QueryOrderDemo";
+import QueryPlanDemo from "@/components/blog/QueryPlanDemo";
+import RetryStormDemo from "@/components/blog/RetryStormDemo";
+import TailLatencyDemo from "@/components/blog/TailLatencyDemo";
+import HydrationCostDemo from "@/components/blog/HydrationCostDemo";
+import RenderingPicker from "@/components/blog/RenderingPicker";
 
 const slug = (children: React.ReactNode) =>
   String(Array.isArray(children) ? children.join("") : children)
@@ -78,6 +86,14 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
     SpecificityDemo,
     MinWidthDemo,
     ThreadPoolDemo,
+    RenderModesDemo,
+    ISRDemo,
+    QueryOrderDemo,
+    QueryPlanDemo,
+    RetryStormDemo,
+    TailLatencyDemo,
+    HydrationCostDemo,
+    RenderingPicker,
     ...components,
   };
 }

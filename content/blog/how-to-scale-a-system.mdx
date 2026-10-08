@@ -1,0 +1,127 @@
+[What is system design?](/blog/what-is-system-design/) introduced the building blocks: load balancers, caches, databases, queues and CDNs. This post is the practical follow-up. **In what order do you actually reach for them, and what goes wrong when you do?**
+
+Scaling isn't a single change. It's a series of bottlenecks you hit one after another, and each fix brings its own new problems. Below are the stages most web apps go through, then the failure modes that cause real outages at scale, with two demos showing how small numbers multiply.
+
+## First, measure
+
+The most common scaling mistake is fixing the wrong thing. Before changing any architecture, find out **where the time and the load actually go**:
+
+- **Latency percentiles, not averages.** Track p50, p95 and p99 response times. An average of 80 ms can hide 1 in 100 users waiting 4 seconds.
+- **The four golden signals** for every service: **latency**, **traffic** (requests per second), **errors** (rate of failures) and **saturation** (how full CPU, memory, connections and queues are).
+- **Tracing.** In a system with several services, a distributed trace shows which hop a slow request spent its time in.
+- **Load tests.** Use a tool like k6 to find your limits on purpose, in staging, before your users find them in production.
+
+Most of the time, the first bottleneck is a missing database index or an N+1 query (see [How SQL queries actually run](/blog/how-sql-queries-run/)), not a lack of servers.
+
+## The stages of scaling
+
+### Stage 1: one server
+
+The app and the database run on one machine. That's the right start, and it goes further than people think. A single well-indexed PostgreSQL server on modern hardware can handle thousands of queries per second.
+
+**Scaling up** (a bigger machine) is the first move. It needs no code changes, and doubling the CPU and RAM is cheap compared with an engineer's time. Its limits are a hardware ceiling and a **single point of failure**: if that machine goes down, everything goes down.
+
+### Stage 2: separate the database, add more app servers
+
+Move the database to its own server, run several copies of the app, and put a **load balancer** in front of them. Now app servers can be added or replaced freely, but only if they're **stateless**:
+
+- **No sessions in memory.** Keep them in Redis or the database, or use signed tokens.
+- **No files on local disk.** Uploads go to object storage like S3 or R2.
+- **No in-process jobs that must survive a restart.** Use a queue (stage 4).
+
+If any request can go to any server and it doesn't matter which, you can autoscale. If it does matter, every deploy and every crash loses users' data.
+
+<Callout type="warn" title="Watch the connection count">
+Ten app servers with a pool of 20 database connections each is 200 connections, and PostgreSQL slows down well before it runs out. Put a connection pooler like **PgBouncer** in front of the database before adding servers, not after it falls over.
+</Callout>
+
+### Stage 3: cache and CDN
+
+Most traffic reads the same data repeatedly. Put a **CDN** in front of static files and cacheable pages, and a **cache** like Redis in front of expensive queries. A good cache hit rate removes most of the database load in one step.
+
+Caching has its own failure modes:
+
+- **Invalidation.** Decide up front how each cached value gets updated or expires. "Delete the key when the data changes" plus a TTL as a safety net is a reliable default.
+- **Cache stampede.** When a popular key expires, thousands of requests miss at once and all hit the database together. Let one request rebuild the value while the others wait or get the stale copy, and add random jitter to TTLs so keys don't all expire in the same second.
+- **Cold starts.** After a cache restart, the hit rate is zero and the database suddenly takes all the traffic. Make sure it can survive that, at least briefly.
+
+### Stage 4: move work out of the request
+
+Anything the user doesn't need to wait for (emails, image processing, reports, webhooks, search indexing) should go onto a **queue** and be processed by background workers. The request finishes in milliseconds, and the workers absorb traffic spikes at their own pace.
+
+Queues bring two rules with them:
+
+- **Messages can be delivered more than once.** Most queues guarantee *at least once* delivery, not exactly once. Make every job **idempotent**: running it twice must have the same effect as running it once. Send the email *if it hasn't been sent*, not just "send the email".
+- **Watch the queue depth.** A queue that keeps growing means workers can't keep up, and the delay is growing even if nothing is erroring.
+
+### Stage 5: scale the database
+
+Eventually the database itself is the bottleneck. In roughly this order:
+
+1. **Read replicas.** Copies of the database that serve reads, while all writes still go to the primary. Most apps read far more than they write, so this helps a lot. The catch is **replication lag**: a user saves their profile, the next page reads from a replica that's 200 ms behind, and their change seems to have vanished. Read your own writes from the primary.
+2. **Split by feature.** Give separate parts of the system (billing, analytics, search) their own databases, so one heavy workload can't slow down the rest.
+3. **Partitioning.** Split a huge table into pieces by time or key within one database (PostgreSQL supports this natively). Old partitions can be archived or dropped cheaply.
+4. **Sharding.** Spread rows across several database servers by a key such as `customer_id`. It's the most scalable option and also the most painful: queries across shards, transactions across shards and rebalancing all become your problem. Leave it until you have no other choice.
+
+## What breaks at scale
+
+Adding capacity is the easy part. Large systems usually go down because of how their parts interact when something is already slightly wrong.
+
+### Retries multiply
+
+Retrying a failed request is sensible on its own. But when a service is struggling and *every* caller retries, the struggling service receives several times its normal traffic at exactly the moment it can handle the least:
+
+<RetryStormDemo />
+
+Three retries across three layers means **64 calls** reach the failing service for every user request. A slow database becomes a dead one. To retry safely:
+
+- **Retry at one layer only**, usually the one closest to the user, or the one that knows whether the operation is safe to repeat.
+- **Use exponential backoff with jitter.** Wait 100 ms, then 200 ms, then 400 ms, each with some randomness, so clients don't all retry at the same instant.
+- **Set a retry budget.** For example, retries may add at most 10% extra traffic. Beyond that, fail fast.
+- **Only retry what's safe to repeat.** Retrying a payment without an **idempotency key** can charge a customer twice.
+
+### Timeouts everywhere
+
+A call with no timeout can wait forever, and while it waits it holds a thread, a connection and memory. When a dependency hangs, those pile up until the calling service runs out and fails too. That's how one slow service takes down the services that call it.
+
+**Every network call needs a timeout**, set from that dependency's normal latency (a bit above its p99), not a default of 30 seconds or none.
+
+### Circuit breakers and bulkheads
+
+- **A circuit breaker** stops calling a dependency that keeps failing. After a run of errors it "opens" and fails immediately for a while, giving the dependency room to recover, then lets a few test requests through to check.
+- **A bulkhead** gives each dependency its own limited pool of connections or threads. If the recommendations service hangs, it can use up its own pool, but not the pool that checkout needs.
+
+### The tail sets the experience
+
+At scale, a single page often waits on dozens of backend calls in parallel, and it's only as fast as the slowest one. A call that's slow just 1% of the time becomes a page that's slow far more often:
+
+<TailLatencyDemo />
+
+With 20 calls per page and a 1% chance of each being slow, about **18%** of page loads hit at least one slow call. That's why large systems obsess over p99 latency, and use tricks like **hedged requests**: if a call hasn't answered within its usual p95 time, send a duplicate to another replica and use whichever answers first.
+
+### Overload: shed load before it sheds you
+
+Every system has a limit. What matters is what happens beyond it. Without protection, an overloaded server accepts every request, becomes slow for all of them, times out on most, and serves nobody. With protection, it serves most users well and rejects the rest quickly:
+
+- **Rate limiting** per user or API key (token bucket is the usual algorithm), returning `429 Too Many Requests`.
+- **Load shedding:** when queues are too long, reject new low-priority work immediately instead of queueing it until it times out.
+- **Graceful degradation:** when recommendations are down, show the page without them instead of an error.
+
+## A checklist before you scale
+
+- **Measure first.** p99 latency, error rate and saturation for every service. Know your bottleneck.
+- **Fix the queries** before adding hardware: indexes, N+1 queries, pagination.
+- **Make app servers stateless**, then scale them horizontally behind a load balancer.
+- **Pool database connections** before adding app servers.
+- **Cache deliberately:** know how each key is invalidated, and protect against stampedes.
+- **Move slow work to queues**, and make every job idempotent.
+- **Use read replicas** before sharding, and handle replication lag.
+- **Put a timeout on every network call**, retry at one layer with backoff and jitter, and add circuit breakers.
+- **Rate limit and shed load** so overload degrades gracefully instead of taking everything down.
+- **Load test** to find your limits before your users do.
+
+<Callout type="info" title="The one-sentence version">
+Scale in stages, fixing the bottleneck you've measured: make app servers stateless and add more, then cache, then move work to queues, then scale the database. At every stage, protect the system from itself with timeouts, careful retries, circuit breakers and load shedding.
+</Callout>
+
+Every one of these choices is a trade-off rather than a free upgrade, which is the central idea of [What is system design?](/blog/what-is-system-design/). And if your services run on Node.js, [How Node.js works](/blog/how-nodejs-works/) explains the single-thread limits you'll hit first.

@@ -1,0 +1,226 @@
+Every web page has to become HTML in a browser at some point. The only questions are **where** that HTML is produced (on a server, at build time or in the browser), **when** (once, per request, or in the background), and **how much JavaScript** has to run before the page responds. Every rendering technique in frontend development is a different answer to those three questions.
+
+This post goes through the main techniques, from the 1990s to now, with what each is good at, what it costs, and when to use it. There's a comparison table at the end, and two demos: one showing how much JavaScript each approach makes the browser run, and one that recommends a technique for your requirements.
+
+## Four questions to judge any technique
+
+Every technique trades off the same things:
+
+- **How fast does something appear?** Measured by time to first byte (TTFB) and first contentful paint (FCP). See [How browsers work](/blog/how-browsers-work/) for what happens in between.
+- **How fast does it respond to input?** Measured by INP. Mostly decided by how much JavaScript runs before and during interaction.
+- **Can search engines and link previews read it?** Google can run JavaScript, but rendering is slower and less reliable. Many other bots, including LinkedIn's and Slack's link previews, read only the initial HTML.
+- **What does it cost to run and build?** Server time per request, hosting needs, and the complexity your team takes on.
+
+## 1. Server-rendered pages (MPA)
+
+**How it works:** the original web. Every link or form submission requests a new page, and the server builds the full HTML with a template (PHP, Rails, Django, Laravel, ASP.NET). JavaScript is optional and added on top. Libraries like **htmx** let the server send back fragments of HTML, so parts of a page can update without full reloads.
+
+**Pros**
+- Fast first load with complete HTML, perfect for SEO and link previews.
+- Very little JavaScript, so it works well on slow phones.
+- One codebase, simple mental model, data and rendering on the same server.
+
+**Cons**
+- Every navigation is a full page load, which feels clunky for app-like interfaces.
+- Rich interactivity means scattering JavaScript across server templates.
+- Needs a server for every request.
+
+**Use it for:** content sites, admin panels, CRUD apps, and teams that are strongest on the backend.
+
+## 2. Client-side rendering (SPA)
+
+**How it works:** the server sends an almost empty HTML page and a JavaScript bundle. The browser downloads and runs it, fetches data from an API, and builds the whole UI. Navigation happens in JavaScript without full page loads. This is what Create React App and the default Vite React template give you.
+
+**Pros**
+- Smooth, app-like navigation once loaded, with state kept between pages.
+- Simple hosting: static files on any CDN, plus a separate API.
+- A clear split between frontend and backend teams.
+
+**Cons**
+- **Slowest first load.** Nothing useful appears until the JavaScript downloads, runs and fetches data, and on slow phones that takes seconds.
+- **Weak SEO and link previews**, because the initial HTML is empty.
+- Bundles tend to grow, and every feature adds to the first load.
+- Data loads in a chain (page → JS → API), a "waterfall" of round trips.
+
+**Use it for:** apps behind a login (dashboards, internal tools, editors) where SEO doesn't matter and users stay for a long session.
+
+## 3. Server-side rendering with hydration (SSR)
+
+**How it works:** the server runs the same React, Vue or Svelte components that would run in the browser, and sends the finished HTML. The browser shows it straight away, then downloads the JavaScript and **hydrates** it: the framework runs the components again in the browser and attaches event handlers to the existing HTML. Next.js, Nuxt, SvelteKit and Remix work this way.
+
+**Pros**
+- Real content in the first response: good FCP, SEO and link previews.
+- Per-request rendering, so content can be personalised and always current.
+- Same components on server and client, and app-like navigation after load.
+
+**Cons**
+- **TTFB waits for data.** The server can't send anything until its data fetching finishes.
+- Server cost on every request, and pages can't be cached on a CDN when they're personalised.
+- **Hydration doubles the work**: the page looks ready, but doesn't respond to clicks until all its JavaScript has downloaded and run. That gap is called the "uncanny valley".
+- Code has to run in two environments, which causes hydration mismatch bugs (for example dates, random values, or `window` checks).
+
+**Use it for:** pages that need SEO **and** per-user or real-time content: product pages with prices and stock, social feeds, search results.
+
+## 4. Static site generation (SSG)
+
+**How it works:** all pages are rendered to HTML **at build time**, then served as plain files from a CDN. They can still hydrate in the browser for interactive parts. This site works this way: [How Next.js renders a page](/blog/how-nextjs-renders/) shows the setup.
+
+**Pros**
+- The fastest TTFB possible: a file from a CDN server near the user.
+- Practically free to host, scales to any traffic, and has no server to break or attack.
+- Perfect SEO.
+
+**Cons**
+- **Content is only as fresh as the last build.** Every change needs a rebuild and deploy.
+- Build times grow with the number of pages: 100,000 product pages is a long build.
+- No per-user content in the HTML; it has to be fetched in the browser.
+
+**Use it for:** blogs, documentation, marketing sites, portfolios.
+
+## 5. Incremental static regeneration (ISR)
+
+**How it works:** pages are static, but each has a lifetime. After it expires, the next visitor still gets the cached page instantly, while a fresh version is rendered in the background (**stale-while-revalidate**). Pages can also be regenerated on demand when data changes, and pages not built ahead of time can be generated on their first visit.
+
+**Pros**
+- Static speed and CDN caching, with content that stays fresh.
+- No giant builds: generate popular pages up front and the rest on demand.
+
+**Cons**
+- **Someone always sees stale content first** after it changes, unless you trigger regeneration on demand.
+- Needs a server or a platform that supports it, plus a shared cache if you run several servers.
+- Harder to reason about: what a user sees depends on cache timing.
+
+**Use it for:** e-commerce catalogues, news, listings: content that's the same for everyone but changes during the day.
+
+## 6. Streaming SSR
+
+**How it works:** SSR, but the server sends HTML **in chunks** in one long response. The page layout and loading placeholders go out immediately, and each slow section is streamed in when its data is ready. With React, you mark those sections with `<Suspense>`. React then hydrates each section as it arrives, prioritising whatever the user interacts with first (**selective hydration**).
+
+**Pros**
+- Fixes SSR's biggest problem: one slow query no longer delays the whole page.
+- Fast TTFB and FCP, with per-request, personalised content.
+- Sections become interactive independently.
+
+**Cons**
+- Still per-request server work, and can't be cached on a CDN when personalised.
+- Loading states move around as content streams in, so you need to design them to avoid layout shift.
+- Some proxies and hosting setups buffer responses and break streaming.
+
+**Use it for:** dynamic pages where some data is slow: dashboards, product pages with recommendations, feeds.
+
+## 7. Partial prerendering (PPR)
+
+**How it works:** a combination of static and streaming. At build time, everything that's the same for every visitor is prerendered into a **static shell**, with holes where per-request content goes. At request time, the shell is sent immediately (from a CDN, where the platform supports it), and only the holes are rendered on the server and streamed in. It's built into Next.js 16 as part of Cache Components.
+
+**Pros**
+- Static speed for most of the page, with live, personalised parts where needed.
+- One personal element (a cart count, a user menu) no longer makes the whole page dynamic.
+
+**Cons**
+- New, and so far mostly specific to Next.js and platforms that support it.
+- You have to think carefully about what's cached and where `<Suspense>` boundaries go.
+- Needs a server for the dynamic parts.
+
+**Use it for:** pages that are mostly the same for everyone with a few personal parts, such as e-commerce and logged-in marketing pages.
+
+## 8. Islands architecture
+
+**How it works:** the page is server-rendered (or static) HTML with **no JavaScript by default**. Only specific interactive components, the "islands", are hydrated, each independently. In **Astro** you choose when each island loads, for example `client:load`, `client:idle` (when the browser is idle) or `client:visible` (when it scrolls into view). Islands can even use different frameworks on the same page.
+
+**Pros**
+- Ships far less JavaScript: a content page with one search box sends the code for that one search box.
+- Excellent performance and SEO for content-heavy sites.
+- Lazy loading per island is built in.
+
+**Cons**
+- Islands are isolated, so sharing state between them needs extra work (shared stores or custom events).
+- Navigation is usually full page loads, not client-side routing, although view transitions help.
+- A poor fit when most of the page is interactive.
+
+**Use it for:** content sites with some interactivity: docs, blogs, marketing sites, e-commerce storefronts.
+
+## 9. React Server Components (RSC)
+
+**How it works:** components are split into two kinds. **Server Components** run only on the server, can read databases and files directly, and send rendered output, not code, to the browser. **Client Components** (marked `"use client"`) work like normal React components and hydrate in the browser. It's like islands, but inside one React tree, with client-side navigation kept. The Next.js App Router is built on it.
+
+**Pros**
+- Server Components add **zero JavaScript** to the bundle, however large their dependencies (markdown parsers, date libraries, syntax highlighters).
+- Data fetching sits next to the component that needs it, with no separate API layer for your own UI.
+- Keeps React's model and client-side navigation, unlike pure islands.
+
+**Cons**
+- A new mental model: what runs where, what can be passed across the boundary (only serialisable props), and when to add `"use client"`.
+- Mostly tied to frameworks that implement it (mainly Next.js so far).
+- The React runtime still ships, so tiny pages are heavier than with islands.
+
+**Use it for:** React apps that want SSR performance with less JavaScript, especially content-heavy pages with some interactive parts.
+
+## 10. Resumability
+
+**How it works:** pioneered by **Qwik**. Hydration re-runs components in the browser to rebuild state the server already had. Resumability skips that: the server **serialises** the application state and event-handler references into the HTML. The browser loads a tiny loader, and each piece of code downloads only when it's first needed, for example on the first click of a button.
+
+**Pros**
+- Near-zero JavaScript on load, however big the app, so pages respond to input almost instantly.
+- Load time doesn't grow as you add components.
+
+**Cons**
+- A separate ecosystem with a smaller community and fewer libraries than React or Vue.
+- The first interaction with each feature can wait for its code to download, unless it's prefetched.
+- A different way of writing code, with serialisation rules to follow.
+
+**Use it for:** large, content-heavy sites where load performance on slow devices is critical, such as e-commerce.
+
+## The hydration problem
+
+Almost every technique above is a different answer to one problem: **hydration**. Server rendering made content appear quickly, but then the browser had to download and re-run the same components to make them interactive. Islands, Server Components and resumability each cut that cost in a different way. See how much JavaScript each one runs on load:
+
+<HydrationCostDemo />
+
+On a page with 40 components, of which 15% are interactive, full hydration ships the code for all 40, while islands and Server Components ship code for only 6. Resumability ships almost nothing on load and fetches each component's code when it's used. That's why the trend over the last few years has been the same everywhere: **render on the server, and send JavaScript only for what's actually interactive.**
+
+## Edge rendering: a "where", not a "how"
+
+**Edge rendering** isn't a separate technique. It means running SSR, streaming or ISR on servers spread around the world (Cloudflare Workers, Vercel's or Netlify's edge functions), close to users, instead of in one region.
+
+- **Pros:** much lower TTFB for users far from your main region, and it scales automatically.
+- **Cons:** your database usually still lives in one region, so a page that makes several queries can end up *slower* at the edge, because each query has to travel back to that region. Edge runtimes also restrict which Node.js APIs and libraries you can use.
+
+Rendering at the edge pays off when the data is also nearby (cached, replicated, or not needed at all).
+
+## Side-by-side comparison
+
+| Technique | First content | Interactive | SEO | Fresh data | Server cost | Complexity |
+|---|---|---|---|---|---|---|
+| MPA | Fast | Fast (little JS) | Excellent | Always | Per request | Low |
+| SPA (CSR) | **Slow** | Slow first, then fast | **Weak** | Always | API only | Low–medium |
+| SSR + hydration | Medium (waits for data) | Delayed by hydration | Excellent | Always | Per request | Medium |
+| SSG | **Fastest** | Depends on JS | Excellent | **Last build** | None | Low |
+| ISR | Fastest (cached) | Depends on JS | Excellent | Within minutes | Occasional | Medium |
+| Streaming SSR | Fast | Per section | Excellent | Always | Per request | Medium |
+| PPR | Fastest (shell) | Per section | Excellent | Holes always | Holes only | Medium–high |
+| Islands | Fastest | Fast (only islands) | Excellent | Depends on render | Varies | Low–medium |
+| Server Components | Fast | Fast (client parts only) | Excellent | Depends on render | Varies | Medium–high |
+| Resumability | Fast | **Near-instant** | Excellent | Depends on render | Varies | Medium |
+
+## Choosing for your page
+
+There's no best technique, only the best fit for a page's requirements. Tick what's true for yours:
+
+<RenderingPicker />
+
+And remember that most real products **mix techniques per route**. A typical setup:
+
+- **Marketing pages and blog:** SSG or islands.
+- **Product and category pages:** ISR or PPR.
+- **Search results and feeds:** streaming SSR.
+- **Account dashboard behind a login:** a server shell plus client-side data, or a SPA.
+
+Modern frameworks like Next.js, Nuxt, SvelteKit and Astro all let you choose per route, so you don't have to pick one technique for the whole site.
+
+<Callout type="tip" title="Measure on real devices">
+Most of these trade-offs show up on mid-range phones on mobile networks, not on a developer's laptop. Compare techniques using real-user Core Web Vitals (LCP and INP), as covered in [Frontend performance, explained](/blog/frontend-performance/).
+</Callout>
+
+<Callout type="info" title="The one-sentence version">
+Rendering techniques differ in where and when HTML is built and how much JavaScript runs before the page responds; static and server rendering win on first load and SEO, client rendering wins on rich interactivity, and modern approaches (streaming, PPR, islands, Server Components, resumability) try to get both by sending JavaScript only for what's actually interactive.
+</Callout>

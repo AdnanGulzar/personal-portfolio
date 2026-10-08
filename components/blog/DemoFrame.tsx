@@ -75,14 +75,14 @@ export function Toggle({
       role="switch"
       aria-checked={on}
       onClick={() => onChange(!on)}
-      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition ${
+      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-left text-xs transition ${
         on
           ? "border-[#a855f7]/60 bg-[#a855f7]/15 text-white"
           : "border-line text-muted hover:border-line-strong hover:text-white"
       }`}
     >
       <span
-        className={`relative h-3.5 w-6 rounded-full transition ${on ? "bg-[#a855f7]" : "bg-white/15"}`}
+        className={`relative h-3.5 w-6 shrink-0 rounded-full transition ${on ? "bg-[#a855f7]" : "bg-white/15"}`}
       >
         <span
           className={`absolute top-0.5 size-2.5 rounded-full bg-white transition-all ${on ? "left-3" : "left-0.5"}`}

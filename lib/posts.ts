@@ -16,6 +16,46 @@ export type Post = {
 
 export const posts: Post[] = [
   {
+    slug: "frontend-rendering-techniques",
+    title: "Frontend rendering techniques: pros and cons of every approach",
+    description:
+      "MPA, SPA, SSR, SSG, ISR, streaming, partial prerendering, islands, Server Components and resumability: how each works, what it's good at, what it costs, and how to choose.",
+    date: "2026-10-08",
+    readingTime: "15 min read",
+    tags: ["Frontend", "Rendering", "Architecture"],
+    accent: "#f97316",
+  },
+  {
+    slug: "how-nextjs-renders",
+    title: "How Next.js renders a page: SSG, SSR, ISR, streaming and PPR",
+    description:
+      "When and where each rendering mode fetches data and builds HTML, partial prerendering with Cache Components in Next.js 16, and who sees stale data with ISR. With timeline demos.",
+    date: "2026-10-08",
+    readingTime: "14 min read",
+    tags: ["Next.js", "React", "Rendering"],
+    accent: "#14b8a6",
+  },
+  {
+    slug: "how-sql-queries-run",
+    title: "How SQL queries actually run: parsing, planning and indexes",
+    description:
+      "The order a query really runs in, how the planner picks a plan from statistics, when it ignores your index, join algorithms, EXPLAIN, and what happens on a write.",
+    date: "2026-10-08",
+    readingTime: "12 min read",
+    tags: ["SQL", "Databases", "Performance"],
+    accent: "#eab308",
+  },
+  {
+    slug: "how-to-scale-a-system",
+    title: "How to scale a system, and what to watch out for",
+    description:
+      "The stages of scaling a web app, from one server to sharded databases, and the failure modes that cause real outages: retry storms, missing timeouts, tail latency and overload.",
+    date: "2026-10-08",
+    readingTime: "13 min read",
+    tags: ["System Design", "Scalability", "Backend"],
+    accent: "#8b5cf6",
+  },
+  {
     slug: "how-v8-works",
     title: "How the V8 engine works: bytecode, JIT tiers and hidden classes",
     description:
