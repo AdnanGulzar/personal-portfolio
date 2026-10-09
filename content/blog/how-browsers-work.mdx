@@ -131,3 +131,5 @@ The browser resolves a name to an address, spends a few round trips opening a se
 </Callout>
 
 Every step here maps to a metric you can measure. Slow DNS and handshakes show up as a high time to first byte, render-blocking CSS and scripts delay **LCP**, and expensive layout on the main thread hurts **INP**. [Frontend performance, explained](/blog/frontend-performance/) has live demos of each.
+
+Part 2, [Inside the browser](/blog/inside-the-browser/), goes deeper into the processes and threads behind all this, and how the browser produces a new frame every 16 ms.

@@ -1,0 +1,129 @@
+You see a padlock and assume the connection is safe. But what does HTTPS actually protect? How do your browser and a server you've never talked to agree on a secret key while anyone on the café Wi-Fi watches every packet? And why should the browser believe the server is really `adnangul.com`?
+
+[How browsers work](/blog/how-browsers-work/) said the TLS handshake costs one round trip and moved on. This post opens it up, with two demos: one where you agree on a secret in public, and one where you break a certificate in every way a browser checks for.
+
+## What HTTPS gives you, and what it doesn't
+
+HTTPS is plain HTTP sent through a **TLS** (Transport Layer Security) connection. TLS gives you three guarantees:
+
+- **Confidentiality.** Nobody between you and the server can read the traffic.
+- **Integrity.** Nobody can change it in transit without the change being detected.
+- **Authentication.** You're talking to the real owner of the domain, not someone pretending to be them.
+
+Everything inside HTTP is protected: the path, the query string, headers, cookies and the body. So someone on your network can't tell whether you visited `/blog/how-https-works/` or `/account/delete`.
+
+Some things are still visible:
+
+- **IP addresses.** Packets have to be routed somewhere.
+- **The domain name.** Your DNS lookup usually goes out unencrypted (unless you use DNS over HTTPS), and the hostname is sent in plain text at the start of the handshake so the server knows which certificate to use. Encrypted Client Hello (ECH) is closing that gap, but it isn't everywhere yet.
+- **Sizes and timing.** How much data moved, and when.
+
+<Callout type="info" title="HTTPS doesn't mean trustworthy">
+The padlock says the connection to this domain is private and genuine. It says nothing about whether the site itself is honest. Phishing sites get certificates too, in seconds, for free.
+</Callout>
+
+## Two kinds of encryption
+
+TLS uses two kinds of cryptography, each for what it's good at.
+
+**Symmetric encryption** uses one key to both encrypt and decrypt. Algorithms like **AES-GCM** and **ChaCha20-Poly1305** are extremely fast (modern CPUs have instructions just for AES), and they also detect tampering. The catch: both sides need the same key, and you can't just send it across a network someone is watching.
+
+**Public-key (asymmetric) cryptography** uses a pair: a **public key** anyone can have and a **private key** that never leaves its owner. It can do things symmetric encryption can't, like agree on a shared secret in public or produce signatures anyone can check. It's also far slower.
+
+So TLS uses public-key cryptography only at the start, to agree on keys and prove identity, then switches to fast symmetric encryption for the actual data.
+
+## Agreeing on a secret in public
+
+The key agreement is the most surprising part. The browser and server each pick a random secret, send each other one number derived from it, and both end up with the same shared secret, while someone who saw every message can't work it out. This is **Diffie-Hellman** key exchange.
+
+The trick is a one-way operation: raising a number to a power modulo a prime is easy, but going backwards (finding the exponent) is hard when the numbers are big. Try it with small numbers:
+
+<KeyExchangeDemo />
+
+With a prime of 23 the eavesdropper just tries every exponent. Real TLS uses the same idea on an elliptic curve called **X25519**, where going backwards is believed to need around 2<sup>128</sup> operations. Every computer on Earth working together wouldn't finish.
+
+### Forward secrecy
+
+In TLS 1.3, both sides generate **fresh key-exchange secrets for every connection** and throw them away afterwards. The server's long-term private key is only used to *sign* the handshake, never to encrypt keys.
+
+That gives **forward secrecy**: if an attacker records your encrypted traffic today and steals the server's private key next year, they still can't decrypt the recording. The keys that protected it no longer exist anywhere. Older TLS versions allowed an "RSA key exchange" without this property, which is one reason TLS 1.3 removed it.
+
+<Callout type="tip" title="Post-quantum key exchange is already here">
+A large enough quantum computer could break X25519, and someone recording traffic now could decrypt it then ("harvest now, decrypt later"). So Chrome, Firefox and big CDNs already use a **hybrid** key exchange, X25519MLKEM768, which combines X25519 with the post-quantum algorithm ML-KEM. An attacker would have to break both.
+</Callout>
+
+## The TLS 1.3 handshake, step by step
+
+Here's what happens after the TCP connection opens (or within QUIC's first packets for HTTP/3):
+
+1. **ClientHello** (browser → server). Supported TLS versions and ciphers, a random value, the browser's **key share** (its public Diffie-Hellman value), the hostname it wants (**SNI**) and the protocols it speaks, like `h2` (**ALPN**). The browser guesses which key exchange the server will pick and sends its share straight away, which is what saves a round trip compared with TLS 1.2.
+2. **ServerHello** (server → browser). The chosen cipher and the server's key share. Both sides can now compute the shared secret and derive encryption keys. **Everything from here on is encrypted.**
+3. **Certificate.** The server's certificate chain, so the browser knows whose public key this is.
+4. **CertificateVerify.** A signature over the whole handshake so far, made with the private key belonging to that certificate. This proves the server actually holds the key, rather than just a copy of a public certificate. It also proves nobody tampered with the earlier messages.
+5. **Finished** (both directions). A checksum over the whole conversation, keyed with the new secrets.
+
+After **one round trip**, the browser sends its HTTP request, already encrypted. In TLS 1.2 this took two.
+
+### Resumption and 0-RTT
+
+When you come back to a site, the server can give you a **session ticket** to skip most of the work next time. TLS 1.3 also allows **0-RTT**: the browser sends its first request *together with* the ClientHello, using a key from the last session.
+
+The catch: an attacker can capture that first flight and **replay** it. So 0-RTT data should only ever be a safe, repeatable request like a `GET`, never "transfer £100". CDNs that support it usually limit it to idempotent requests.
+
+## Certificates: why you trust the server
+
+Key exchange gives you a private channel, but to *whom*? Without authentication an attacker in the middle could run one handshake with you and another with the real server, and read everything. The certificate is what stops that.
+
+A certificate (an **X.509** certificate) is a small signed document that says, in effect: *"the public key K belongs to whoever controls `adnangul.com` and `www.adnangul.com`, valid from date A to date B. Signed, a certificate authority."* It contains:
+
+- **Subject alternative names (SANs)**: the hostnames it's valid for. A wildcard like `*.adnangul.com` covers exactly one level: `www.adnangul.com` yes; `adnangul.com` and `a.b.adnangul.com` no.
+- **The public key** matching the server's private key.
+- **Validity dates**: "not before" and "not after".
+- **The issuer** and **its signature** over all of the above.
+
+### The chain of trust
+
+Your operating system and browser ship with a **trust store**: around 150 root certificates from **certificate authorities (CAs)** that have passed audits. Roots are kept offline and rarely used. Instead, a root signs an **intermediate** certificate, and the intermediate signs your site's **leaf** certificate.
+
+The server sends its leaf and the intermediate. The browser checks that each signature is valid, that the chain ends at a root it already trusts, and that the dates and hostname are right. Then the handshake proves the server holds the matching private key. Try breaking each step:
+
+<CertChainDemo />
+
+Two of those are worth remembering as a developer:
+
+- **"Intermediate not sent"** is the classic "works on my machine" bug. Desktop Chrome often fills in the missing certificate itself, so the site looks fine, while curl, a payment provider's webhook client or an older phone rejects it. Always serve the **full chain**.
+- **"Attacker without the private key"** shows why stealing a certificate is pointless. Certificates are public; anyone can download yours. Only the private key matters, which is why it must never be committed to Git or pasted anywhere.
+
+### How a CA knows you own the domain
+
+For the common **domain-validated (DV)** certificates, the CA just checks that you control the domain, usually automatically using the **ACME** protocol (which Let's Encrypt created):
+
+- **HTTP-01:** put a specific token at `http://yourdomain/.well-known/acme-challenge/…`.
+- **DNS-01:** create a specific `TXT` record. This is required for wildcard certificates.
+
+Your hosting provider or a tool like certbot does this for you and renews automatically. Certificate lifetimes are getting shorter: Let's Encrypt's are 90 days, and the industry has agreed to reduce the maximum for all public certificates in steps to **47 days by 2029**. Manual renewal is on its way out, so automate it.
+
+### Keeping CAs honest
+
+A CA can be hacked or make mistakes, and any trusted CA can issue a certificate for any domain. Two mechanisms limit the damage:
+
+- **Certificate Transparency (CT).** CAs must publish every certificate they issue to public, append-only logs, and Chrome and Safari reject certificates that aren't logged. You can search the logs for your own domain at sites like crt.sh and spot certificates you didn't ask for.
+- **CAA records.** A DNS record that says which CAs are allowed to issue for your domain, for example `adnangul.com. CAA 0 issue "letsencrypt.org"`.
+
+**Revocation**, cancelling a certificate before it expires (say, after a key leak), has never worked well. Browsers often can't check revocation status quickly or privately. That's a big reason behind short lifetimes: a leaked certificate that expires within weeks does limited damage anyway.
+
+## HTTPS in practice
+
+A few things that sit around TLS and matter just as much:
+
+- **Redirect HTTP to HTTPS, then add HSTS.** The header `Strict-Transport-Security: max-age=31536000; includeSubDomains` tells the browser to never use plain HTTP for your domain again, even if a link says `http://`. That closes the gap where an attacker intercepts the very first insecure request. Domains on the HSTS preload list (all of `.dev` and `.app`, for example) are HTTPS-only from the first visit.
+- **No mixed content.** An HTTPS page loading a script over HTTP would undo everything, so browsers block or upgrade those requests.
+- **TLS often ends before your server.** With a CDN or load balancer, the browser's TLS connection ends there, and a second connection (ideally also TLS) goes to your app. Your app sees plain HTTP plus headers like `X-Forwarded-Proto`. [How to scale a system](/blog/how-to-scale-a-system/) covers that layer.
+- **Services can check each other too.** With **mutual TLS (mTLS)** the client also presents a certificate, so each service knows exactly who is calling it. Service meshes set this up automatically. [How software talks](/blog/how-apps-communicate/) covers service-to-service communication.
+- **The cost is small now.** TLS 1.3 needs one round trip (zero with 0-RTT, and QUIC merges it with the connection setup), and symmetric encryption is hardware-accelerated. There's no performance reason left to skip it.
+
+<Callout type="info" title="The one-sentence version">
+The browser and server use a Diffie-Hellman exchange to agree on fresh keys nobody else can compute, the server proves who it is with a certificate signed by a CA your device trusts plus a signature only its private key can make, and then everything is encrypted with fast symmetric ciphers.
+</Callout>
+
+Next in the series: [Real-time on the web](/blog/real-time-on-the-web/), about what happens when the server needs to send *you* something.

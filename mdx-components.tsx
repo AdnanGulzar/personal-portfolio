@@ -28,6 +28,15 @@ import RetryStormDemo from "@/components/blog/RetryStormDemo";
 import TailLatencyDemo from "@/components/blog/TailLatencyDemo";
 import HydrationCostDemo from "@/components/blog/HydrationCostDemo";
 import RenderingPicker from "@/components/blog/RenderingPicker";
+import MainThreadDemo from "@/components/blog/MainThreadDemo";
+import FrameBudgetDemo from "@/components/blog/FrameBudgetDemo";
+import KeyExchangeDemo from "@/components/blog/KeyExchangeDemo";
+import CertChainDemo from "@/components/blog/CertChainDemo";
+import RealtimeDemo from "@/components/blog/RealtimeDemo";
+import WsFrameDemo from "@/components/blog/WsFrameDemo";
+import FetchShapeDemo from "@/components/blog/FetchShapeDemo";
+import ProtobufDemo from "@/components/blog/ProtobufDemo";
+import SyncAsyncDemo from "@/components/blog/SyncAsyncDemo";
 
 const slug = (children: React.ReactNode) =>
   String(Array.isArray(children) ? children.join("") : children)
@@ -94,6 +103,15 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
     TailLatencyDemo,
     HydrationCostDemo,
     RenderingPicker,
+    MainThreadDemo,
+    FrameBudgetDemo,
+    KeyExchangeDemo,
+    CertChainDemo,
+    RealtimeDemo,
+    WsFrameDemo,
+    FetchShapeDemo,
+    ProtobufDemo,
+    SyncAsyncDemo,
     ...components,
   };
 }

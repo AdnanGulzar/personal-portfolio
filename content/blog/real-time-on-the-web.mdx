@@ -1,0 +1,152 @@
+HTTP was designed around one rule: **the browser asks, the server answers.** The server can't start a conversation. That's fine for loading pages, but chat messages, live scores, notifications, collaborative cursors and AI responses that appear word by word all need the server to send something *when it happens*, not when the browser next asks.
+
+There are several ways around the rule, each a little cleverer than the last: **polling, long polling, Server-Sent Events, WebSockets**, plus **WebRTC** and **WebTransport** for special cases. This post shows how each one works, with a demo comparing them on the same minute of events and another showing what a WebSocket message looks like byte by byte. It ends with the part tutorials usually skip: running real-time connections in production.
+
+## Polling: just keep asking
+
+The simplest approach: ask every few seconds.
+
+```js
+setInterval(async () => {
+  const res = await fetch("/api/notifications?since=" + lastId);
+  render(await res.json());
+}, 5000);
+```
+
+It works everywhere, every proxy and load balancer understands it, and each request is ordinary, stateless HTTP. Two problems, and you have to trade one against the other:
+
+- **Delay.** An event that happens just after a poll waits a whole interval to be seen.
+- **Waste.** Most polls come back empty, and each one is a full HTTP request with headers and cookies, multiplied by every open tab of every user.
+
+Halving the interval halves the delay and doubles the wasted requests. See for yourself:
+
+<RealtimeDemo />
+
+Polling is still the right answer surprisingly often. If data changes every few minutes, or a few seconds of delay is fine (a dashboard, a build status), polling is simple and robust. Pause it when the tab is hidden (`document.visibilityState`), and you're done.
+
+## Long polling: ask and wait
+
+**Long polling** flips the waiting to the server side. The browser makes a request, and the server **doesn't answer until it has something to send** (or a timeout, say 30 seconds, passes). As soon as the browser gets a response, it immediately makes the next request.
+
+News arrives about half a round trip after it happens, and there are almost no empty responses. Before WebSockets were widely supported, long polling powered chat in Gmail and Facebook.
+
+Its weak spots:
+
+- **The gap between requests.** An event that happens while the next request is in flight has to wait for it. The server must buffer events per client, and the client should send a cursor (`?since=1234`) so nothing gets lost.
+- **Every message still costs a full HTTP round trip**, so a fast stream of events turns into a fast stream of requests.
+- **Held requests tie up resources.** Each waiting request is an open connection, and in thread-per-request servers it's also a blocked thread. Event-loop servers like Node.js handle this well ([How Node.js works](/blog/how-nodejs-works/) explains why).
+
+## Server-Sent Events: a response that never ends
+
+**Server-Sent Events (SSE)** are what long polling wanted to be. The browser makes one ordinary HTTP request, and the server sends back a response that **stays open**, writing events into it as they happen:
+
+```js
+// browser
+const events = new EventSource("/api/stream");
+events.addEventListener("score", (e) => update(JSON.parse(e.data)));
+```
+
+```http
+HTTP/1.1 200 OK
+Content-Type: text/event-stream
+Cache-Control: no-cache
+
+id: 41
+event: score
+data: {"home": 2, "away": 1}
+
+id: 42
+event: score
+data: {"home": 3, "away": 1}
+
+```
+
+The format is just text: optional `id:`, `event:` and `retry:` lines, one or more `data:` lines, and a blank line to end each event. It comes with features you'd otherwise build yourself:
+
+- **Automatic reconnection.** If the connection drops, `EventSource` reconnects on its own.
+- **Resuming where you left off.** On reconnect it sends the last `id` it saw in a `Last-Event-ID` header, so the server can replay what was missed.
+- **It's plain HTTP.** It goes through proxies, works with HTTP/2 and HTTP/3, and uses your normal cookies and authentication.
+
+This is also how most AI chat interfaces stream their answers token by token: an HTTP response with `text/event-stream`, read as it arrives.
+
+The limits:
+
+- **One direction only.** The server talks; the browser sends anything back with normal `fetch` requests. For most apps (notifications, feeds, progress, AI responses) that's all you need.
+- **Text only.** Binary data has to be encoded, for example as base64.
+- **The connection limit on HTTP/1.1.** Browsers allow only about 6 connections per domain over HTTP/1.1, and every open `EventSource` holds one, across all tabs. Open 7 tabs and the 7th hangs. Over HTTP/2 or HTTP/3 the streams share one connection, so serve SSE over HTTP/2.
+- **No custom headers.** The `EventSource` API can't set an `Authorization` header. Use cookies, or read the stream with `fetch` and a stream reader instead.
+
+<Callout type="warn" title="When events arrive all at once">
+If events show up in big bursts instead of one at a time, something between the server and the browser is buffering the response: a reverse proxy like nginx, or compression middleware waiting for a full chunk. Turn buffering off for that route (nginx respects an `X-Accel-Buffering: no` response header) and flush after every event.
+</Callout>
+
+## WebSockets: a two-way pipe
+
+A **WebSocket** starts as an HTTP request and then stops being HTTP. The browser asks to **upgrade** the connection:
+
+```http
+GET /chat HTTP/1.1
+Host: example.com
+Upgrade: websocket
+Connection: Upgrade
+Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
+Sec-WebSocket-Version: 13
+```
+
+If the server agrees, it answers `101 Switching Protocols` (with `Sec-WebSocket-Accept`, a hash of the key, proving it really speaks WebSocket). From then on, the TCP connection carries **WebSocket frames in both directions**, whenever either side likes:
+
+```js
+const ws = new WebSocket("wss://example.com/chat");
+ws.onmessage = (e) => show(JSON.parse(e.data));
+ws.send(JSON.stringify({ type: "message", text: "hi" }));
+```
+
+Once the connection is open, a message costs only a few bytes of framing, instead of a full set of HTTP headers. Type a message and see exactly what goes over the wire:
+
+<WsFrameDemo />
+
+That makes WebSockets the natural fit when **both sides talk often**: chat, multiplayer games, collaborative editors, live trading screens.
+
+What you take on in exchange:
+
+- **No automatic reconnection.** When the connection drops (and on mobile it will), you reconnect yourself, with exponential backoff and random jitter, and re-sync whatever was missed. Libraries like Socket.IO do this for you.
+- **Silent dead connections.** A connection can die without either side noticing, for example when a phone switches networks. Send a **heartbeat** (ping) every 20–30 seconds, which also stops load balancers from closing connections they think are idle.
+- **Authentication and security.** The browser API can't set custom headers. Use cookies, a short-lived token in the URL, or a token as the first message. And **check the `Origin` header** on the server: browsers send cookies with WebSocket requests from any site, so without that check another site can open a socket as your logged-in user (cross-site WebSocket hijacking).
+- **It's your own protocol.** HTTP gives you status codes, caching, methods and tooling. Over a WebSocket you design message types, errors and acknowledgements yourself.
+
+## WebRTC and WebTransport
+
+Two more technologies cover the cases the others can't:
+
+- **WebRTC** connects **browsers directly to each other**. It's built for audio and video (calls, screen sharing) and also has data channels. Your server still has to help the peers find each other (**signalling**, often over a WebSocket), **STUN** servers help them discover their public addresses, and when firewalls block a direct path, a **TURN** server relays the traffic. Group calls usually route through a server (an **SFU**) anyway, because every participant sending video to every other one doesn't scale.
+- **WebTransport** runs over HTTP/3 (QUIC) and offers many independent streams plus **unreliable datagrams**: messages that may be dropped rather than delayed. That matters for games and live media, where a stale position update is worthless and waiting for a resend only causes lag. It's newer and browser support still varies, so check it before relying on it.
+
+## Running real-time in production
+
+Getting one connection working is the easy part. With thousands of users, these are the problems that show up:
+
+- **Each server only knows its own connections.** User A's socket is on server 1 and user B's is on server 2. To send A's message to B, the servers need a shared **pub/sub backplane** such as Redis Pub/Sub or NATS: server 1 publishes, every server receives it, and server 2 forwards it to B. [What is system design?](/blog/what-is-system-design/) covers the building blocks.
+- **Long-lived connections fight serverless.** Functions that live for one request can't hold a socket for an hour. Use a long-running server, or a managed service that holds the connections for you, such as a hosted WebSocket gateway or Cloudflare Durable Objects.
+- **Deploys disconnect everyone.** Restarting a server drops every connection on it, and they all reconnect at the same moment: a **reconnect storm** that can take down the replacement servers. Add jitter to reconnect delays, and drain servers gradually. [How to scale a system](/blog/how-to-scale-a-system/) explains why synchronised retries are so dangerous.
+- **Messages get lost on reconnect.** Give events increasing IDs, keep a short history, and let clients ask for "everything after ID 1234". SSE does the client side of this for you; with WebSockets you build it.
+- **Watch every hop's idle timeout.** Load balancers, proxies and CDNs close connections that look idle, often after 60 seconds or less. Heartbeats need to be more frequent than the shortest one.
+- **Count connections, not just requests.** Each open connection costs memory and a file descriptor. Monitor how many are open, and raise the OS limit on open files.
+
+## How to choose
+
+| | Direction | Delay | Overhead per message | Reconnects itself | Good for |
+|---|---|---|---|---|---|
+| **Polling** | Server → client, when asked | Up to one interval | Full HTTP request, mostly empty | n/a | Data that changes slowly, simple dashboards |
+| **Long polling** | Server → client | ~½ round trip | Full HTTP request | You build it | Fallback where nothing else works |
+| **SSE** | Server → client | ~½ round trip | A few bytes of text | **Yes** | Notifications, feeds, progress, AI streaming |
+| **WebSocket** | **Both ways** | ~½ round trip | 2–14 bytes | You build it | Chat, games, collaboration |
+| **WebRTC** | Peer to peer | Lowest | Small | Partly | Calls, video, P2P data |
+| **WebTransport** | Both ways, can drop late data | Lowest | Small | You build it | Games and live media |
+
+A good rule: **if only the server needs to push, start with SSE.** It's plain HTTP, reconnects and resumes by itself, and covers more apps than people expect. Reach for WebSockets when the client sends often too. And don't rule out polling: it's the easiest one to get right.
+
+<Callout type="info" title="The one-sentence version">
+HTTP only lets the browser ask, so real-time on the web is a series of workarounds: ask often (polling), ask and wait (long polling), keep one response open for the server to write into (SSE), or upgrade to a two-way socket (WebSockets), and the hard part in production is everything around the connection, not the connection itself.
+</Callout>
+
+Real-time is one way programs talk to each other. [How software talks](/blog/how-apps-communicate/) covers the rest: REST, GraphQL, gRPC, webhooks and message queues.

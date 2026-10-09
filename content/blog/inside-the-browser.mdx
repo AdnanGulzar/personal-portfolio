@@ -1,0 +1,132 @@
+[How browsers work](/blog/how-browsers-work/) followed one request from the address bar to pixels: DNS, connections, parsing, layout and paint. This is part 2. It opens up the browser itself: how it's split into processes, which threads do what, and how it produces a new frame every 16 milliseconds, or fails to.
+
+That last part is where most "this page feels slow" problems live. There are two demos, and the first one is real: it actually blocks your browser's main thread so you can see what keeps working and what freezes.
+
+## A browser is three engines and a shell
+
+Every browser is built from the same parts:
+
+- **A rendering engine** turns HTML and CSS into pixels: **Blink** in Chrome, Edge, Opera and Brave; **WebKit** in Safari; **Gecko** in Firefox.
+- **A JavaScript engine** runs your code: **V8** in Chromium-based browsers, **JavaScriptCore** in Safari, **SpiderMonkey** in Firefox. [How the V8 engine works](/blog/how-v8-works/) covers one in depth.
+- **A networking stack** handles HTTP, caching and TLS.
+- **The browser shell** is everything around the page: tabs, the address bar, bookmarks, extensions and settings.
+
+So "Edge vs Chrome" is mostly a difference in shell and services. Under the hood they render pages with the same engine. That's also why most web compatibility issues come down to three engines, not dozens of browsers. On iOS, every browser has historically had to use WebKit, although Apple has started allowing other engines in some regions.
+
+## Many processes, not one program
+
+In the early days, a browser was a single program. One crashing plugin or runaway page took down every tab, and a security bug in the renderer could reach everything the browser could. Modern browsers split the work into **separate operating-system processes** that can't read each other's memory. Chrome's split looks like this:
+
+- **The browser process** is in charge. It draws the tabs and address bar, handles permissions, starts the other processes and routes messages between them.
+- **Renderer processes** turn a site's HTML, CSS and JavaScript into a page. This is where the engine from part 1 runs. They're **sandboxed**: they can't touch the file system, the network or other processes directly, only ask the browser process to do things for them.
+- **The GPU process** talks to the graphics card and puts the final frames on screen, for every tab.
+- **The network service** does all networking and caching for every renderer.
+- **Utility processes** handle things like audio, storage and decoding untrusted data.
+
+The processes talk to each other through **inter-process communication (IPC)**. When your page calls `fetch`, the renderer can't open a socket itself. It sends a message to the network service, which does the work and sends the response back.
+
+### Site isolation
+
+Chrome puts **each site in its own renderer process**. A "site" here means scheme plus registrable domain, so `https://a.example.com` and `https://b.example.com` are the same site, but `https://example.com` and `https://evil.com` are not. That even applies to iframes: a cross-site iframe runs in a different process from the page that embeds it.
+
+Site isolation matters because of attacks like **Spectre**, which can read memory inside the same process. With isolation, a malicious page can only read memory belonging to its own site. Firefox and Safari have their own versions of the same idea.
+
+The cost is memory: dozens of tabs means dozens of processes. Under memory pressure, Chrome will put several tabs from the *same* site into one process, but it never mixes sites.
+
+## Inside a renderer: the threads that matter
+
+A renderer process has several threads, but three decide how your page feels:
+
+- **The main thread** does almost everything: runs your JavaScript, handles events, calculates styles, runs layout, and records what needs painting. **It can only do one thing at a time.**
+- **The compositor thread** takes the painted content, organised into layers, and assembles each frame. It handles scrolling and certain animations by itself, *without* the main thread.
+- **Raster threads** turn the paint instructions into actual pixels, usually with help from the GPU, in square **tiles**.
+
+Plus any **Web Workers** you create, each with its own thread and event loop, and V8's helper threads for garbage collection and compiling.
+
+The split between the main thread and the compositor thread is the most important idea in this post. Try it:
+
+<MainThreadDemo />
+
+While the main thread was busy, the green ball (a CSS `transform` animation) kept sliding, because the compositor thread animated it on its own. The purple ball, moved by JavaScript, froze, and your clicks waited in a queue. Depending on your browser, you may also have been able to scroll the page during the block: compositor scrolling doesn't need the main thread either.
+
+## The frame: 16.7 milliseconds
+
+Your screen refreshes at a fixed rate, typically **60 times a second**, and on many phones and laptops 120. Each refresh is a deadline. To show smooth motion, the browser has to produce a new frame for every refresh:
+
+- **60 Hz:** a new frame every **16.7 ms**
+- **120 Hz:** a new frame every **8.3 ms**
+
+And that time isn't all yours. The browser needs part of each frame for its own work, so in practice you have about **10 ms** of JavaScript per frame at 60 Hz, and less at 120 Hz.
+
+### What happens in one frame
+
+When the main thread is free and the display is about to refresh, the browser runs one frame's worth of work, in this order:
+
+1. **Input events.** Pending scrolls, taps and key presses are dispatched to your handlers.
+2. **`requestAnimationFrame` callbacks.** The place to update anything visual from JavaScript.
+3. **Style.** Recalculate CSS for anything that changed.
+4. **Layout.** Recompute sizes and positions if geometry changed.
+5. **Paint.** *Record* drawing commands into display lists. It doesn't draw pixels yet.
+6. **Commit.** Hand the result over to the compositor thread.
+
+From there, the compositor thread splits each layer into tiles, the raster threads turn them into pixels on the GPU, and the GPU process puts the finished frame on screen.
+
+If the main thread is still busy when the next refresh arrives, there's no new frame: the screen shows the same picture again. That's a **dropped frame**, and a run of them is what people call **jank**. Play with the budget:
+
+<FrameBudgetDemo />
+
+Two things break the budget. Steady work that's slightly too big for every frame halves your frame rate, so the page feels sluggish. A single **long task** (any task over 50 ms) freezes everything for its whole duration. The browser can't interrupt a running task, so even a scroll handled on the main thread or a click's visual response has to wait.
+
+<Callout type="info" title="This is what INP measures">
+Interaction to Next Paint measures how long it takes from a user's click, tap or key press to the next frame that shows a response. A long task that happens to be running when the user clicks delays that frame. See [Frontend performance, explained](/blog/frontend-performance/) for the thresholds.
+</Callout>
+
+## How input reaches your page
+
+When you tap the screen, the **browser process** receives the event from the operating system first. It only knows *where* the tap happened, so it sends the event to the renderer that owns that part of the window.
+
+Inside the renderer, the **compositor thread** gets it first. If the area has no event listeners, it can handle a scroll immediately, by just moving layers, without waiting for the main thread. If there are listeners that could cancel the scroll with `preventDefault()`, the compositor has to send the event to the main thread and **wait for your handler** before it knows whether to scroll. If the main thread is busy, scrolling stutters.
+
+That's why **passive listeners** exist:
+
+```js
+// "I promise not to call preventDefault()": the compositor can scroll straight away
+window.addEventListener("touchmove", onTouchMove, { passive: true });
+window.addEventListener("wheel", onWheel, { passive: true });
+```
+
+Browsers now make `touchstart`, `touchmove` and `wheel` listeners on the window, document and body passive by default. Listeners on other elements still aren't, so add `{ passive: true }` wherever you don't need `preventDefault()`.
+
+## Layers: what the compositor can move cheaply
+
+The compositor works with **layers**: pieces of the page painted separately, which it can move, scale and fade without painting them again. That's why `transform` and `opacity` animations are cheap: they only change how an existing layer is drawn. The pipeline demo in [part 1](/blog/how-browsers-work/) shows which properties trigger which stages.
+
+The browser decides what gets its own layer. Common reasons include an active `transform` or `opacity` animation, `will-change: transform`, video, canvas, and fixed-position elements. You can see the layers in Chrome DevTools under **More tools → Layers**.
+
+<Callout type="warn" title="Don't promote everything">
+Every layer is a bitmap held in GPU memory: roughly width × height × 4 bytes. A full-screen layer on a high-resolution phone can be over 10 MB. Adding `will-change` to dozens of elements can use up GPU memory and make things *slower*. Use it on elements that are about to animate, and remove it afterwards.
+</Callout>
+
+When you scroll faster than the raster threads can produce tiles, the compositor has nothing to show for the new area, and you briefly see blank or low-resolution patches. That's called **checkerboarding**: a sign of very large or expensive-to-paint pages.
+
+## Keeping the main thread free
+
+Everything above leads to one rule: **the main thread is shared by your code and the browser's rendering, so keep each piece of work short.**
+
+- **Split long tasks.** Process big lists in chunks and give the browser a chance to render and handle input between them. Use `await scheduler.yield()` where it's supported, or `setTimeout` as a fallback.
+- **Move heavy work to a Web Worker.** Parsing, image processing and searching big data sets can all run on a worker thread and post results back.
+- **Animate `transform` and `opacity`**, preferably with CSS or the Web Animations API, so the compositor can run them without the main thread.
+- **Do visual updates in `requestAnimationFrame`**, not in timers, so they line up with frames.
+- **Batch DOM reads and writes.** Reading layout (`offsetHeight`) after a write forces an immediate layout. Read everything first, then write.
+- **Use passive event listeners** for scroll, wheel and touch events.
+- **Skip rendering what isn't visible.** `content-visibility: auto` lets the browser skip style, layout and paint for off-screen sections of long pages.
+
+<Callout type="tip" title="See it in DevTools">
+Record a trace in the Chrome DevTools **Performance** panel while you interact with your page. The **Main** track shows every task, with long tasks marked in red, and the **Frames** track shows exactly which frames were dropped.
+</Callout>
+
+<Callout type="info" title="The one-sentence version">
+A browser is a set of sandboxed processes, and inside each page's renderer one main thread runs your JavaScript, style, layout and paint, while a compositor thread assembles frames; the browser needs a new frame every 16.7 ms, so anything that holds the main thread longer than that makes the page drop frames and ignore input.
+</Callout>
+
+What actually runs on that main thread, and in what order, is covered in [How JavaScript works](/blog/how-javascript-works/), which explains the event loop.

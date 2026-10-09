@@ -16,6 +16,46 @@ export type Post = {
 
 export const posts: Post[] = [
   {
+    slug: "how-apps-communicate",
+    title: "How software talks: REST, GraphQL, gRPC, webhooks and queues",
+    description:
+      "Synchronous calls vs asynchronous messages, what each API style is good at and what it costs, receiving webhooks safely, and the rules of message queues. With demos using real bytes.",
+    date: "2026-10-08",
+    readingTime: "15 min read",
+    tags: ["APIs", "Backend", "Architecture"],
+    accent: "#d946ef",
+  },
+  {
+    slug: "real-time-on-the-web",
+    title: "Real-time on the web: polling, SSE, WebSockets and beyond",
+    description:
+      "How the server sends you something when HTTP only lets you ask: polling, long polling, Server-Sent Events, WebSockets, WebRTC and WebTransport, and what breaks in production.",
+    date: "2026-10-08",
+    readingTime: "13 min read",
+    tags: ["Networking", "WebSockets", "Backend"],
+    accent: "#f43f5e",
+  },
+  {
+    slug: "how-https-works",
+    title: "How HTTPS works: key exchange, certificates and the TLS handshake",
+    description:
+      "What HTTPS protects and what it doesn't, how two strangers agree on a secret in public, the TLS 1.3 handshake step by step, and what the browser checks in a certificate. With demos.",
+    date: "2026-10-08",
+    readingTime: "13 min read",
+    tags: ["Security", "Networking", "Fundamentals"],
+    accent: "#22c55e",
+  },
+  {
+    slug: "inside-the-browser",
+    title: "Inside the browser: processes, threads and the 16 ms frame",
+    description:
+      "Part 2 of How browsers work: rendering engines, sandboxed processes and site isolation, the main thread vs the compositor, how a frame is made, and why pages jank. With a demo that really blocks your main thread.",
+    date: "2026-10-08",
+    readingTime: "12 min read",
+    tags: ["Browsers", "Performance", "Fundamentals"],
+    accent: "#06b6d4",
+  },
+  {
     slug: "frontend-rendering-techniques",
     title: "Frontend rendering techniques: pros and cons of every approach",
     description:

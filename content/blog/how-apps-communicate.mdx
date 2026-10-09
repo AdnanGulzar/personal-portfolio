@@ -1,0 +1,170 @@
+Almost every bug report that starts "it works locally" ends at a boundary: a frontend calling an API, one service calling another, a payment provider calling you back, a background job that never ran. How software talks to other software shapes speed, reliability and how painful changes are.
+
+This post walks through the main options: **REST, GraphQL, gRPC, webhooks and message queues**. For each one it covers how it works, what it's good at and what it costs. Three demos use real data: fetching one screen three ways, the same object as JSON and Protocol Buffers, and a checkout that calls services directly or through a queue.
+
+## Two questions first
+
+Before picking a technology, answer two questions:
+
+1. **Does the caller need the answer right now?** If yes, it's **synchronous**: the caller sends a request and waits (REST, GraphQL, gRPC). If not, it can be **asynchronous**: the caller hands the work off and carries on (queues, events, webhooks).
+2. **Who starts the conversation?** The client asking (**request–response**), the server pushing (**webhooks, real-time**), or nobody in particular: someone announces that something happened and whoever cares reacts (**events**).
+
+Every option below is a different answer to those two questions.
+
+## REST: resources over HTTP
+
+**REST** models your API as **resources** with URLs, and uses HTTP's own verbs and status codes to act on them:
+
+```http
+GET    /posts/42            → 200 OK, the post
+POST   /posts               → 201 Created
+PATCH  /posts/42            → 200 OK, updated
+DELETE /posts/42            → 204 No Content
+GET    /posts/42/comments   → 200 OK, a list
+```
+
+Its biggest strength is that it **is** HTTP, so everything built for HTTP works for free. Responses can be cached by browsers and CDNs with plain `Cache-Control` headers. Every language, proxy, log and monitoring tool understands it, and you can try an endpoint with curl.
+
+Two ideas make REST APIs reliable:
+
+- **Use the right status codes.** `4xx` means the caller did something wrong and retrying won't help; `5xx` means the server failed and a retry might work. Clients and retry logic depend on that difference.
+- **Idempotency.** `GET`, `PUT` and `DELETE` should be safe to repeat: doing them twice has the same effect as once. `POST` isn't, which is dangerous for anything like a payment when a network timeout leaves you unsure whether it worked. The common fix is an `Idempotency-Key` header: the client generates a unique key per operation, and the server remembers keys it has already processed and returns the original result instead of charging twice.
+
+REST's weakness shows up on screens that combine several resources. The API's shape is fixed by the server, so the client usually **over-fetches** (gets fields it doesn't show) and **under-fetches** (needs several calls, sometimes one after another). On a mobile network with a 150 ms round trip, that adds up fast.
+
+## GraphQL: the client picks the shape
+
+**GraphQL** has a single endpoint and a typed **schema** describing everything you can ask for. The client sends a query that lists exactly the fields it wants, nested however it likes, and the response has that exact shape:
+
+```graphql
+query {
+  post(id: 42) {
+    title
+    author { name avatarUrl }
+    comments { body }
+  }
+}
+```
+
+Here's the same screen fetched three ways. The byte counts are the real sizes of the JSON responses:
+
+<FetchShapeDemo />
+
+That flexibility moves the cost to the server:
+
+- **The N+1 problem.** Each field has a **resolver** function. A naïve resolver for `comments { author { name } }` runs one database query for the comments, then one more for *each* comment's author. The standard fix is **DataLoader**, which collects all the IDs requested in one tick and loads them in a single batched query.
+- **Caching gets harder.** Every request is a `POST` to `/graphql`, so CDNs and browsers can't cache by URL. Clients like Apollo and Relay cache by object ID instead, and **persisted queries** (send a hash of a known query, ideally over `GET`) bring HTTP caching back.
+- **Clients can ask for too much.** A deeply nested query can be enormous to resolve. Public GraphQL APIs need depth limits and query cost limits, or accept only persisted queries.
+- **Errors don't use status codes.** A response can be `200 OK` with an `errors` array alongside partial data, so your monitoring has to look inside the body.
+
+GraphQL shines when **many different clients** (web, iOS, Android, partners) need different views of the same rich data, and the frontend teams want to move without waiting for new endpoints. For one web app talking to its own backend, it's often more machinery than you need.
+
+## RPC and gRPC: call a function on another machine
+
+**RPC** (remote procedure call) drops the resource idea and simply calls functions: `getUser(id)`, `chargeCard(amount)`. **gRPC**, created at Google, is the most common form today. You describe your service in a `.proto` file:
+
+```protobuf
+service Users {
+  rpc GetUser (GetUserRequest) returns (User);
+  rpc WatchUsers (WatchRequest) returns (stream User);
+}
+
+message User {
+  int32  id     = 1;
+  string name   = 2;
+  bool   active = 3;
+}
+```
+
+and generate typed client and server code in any of a dozen languages from it. Underneath, gRPC runs over **HTTP/2** and encodes messages with **Protocol Buffers**, a compact binary format. Compare it with JSON:
+
+<ProtobufDemo />
+
+What gRPC brings:
+
+- **A strict contract.** The `.proto` file is the API documentation, and the generated code means a typo in a field name is a compile error, not a 3 a.m. production bug. Field numbers make it safe to evolve: add new fields with new numbers and old clients simply ignore them.
+- **Speed.** Smaller messages, faster parsing and many calls multiplexed over one HTTP/2 connection.
+- **Streaming in both directions**, built in.
+- **Deadlines.** Every call carries a deadline, which is passed along to the services it calls, so work stops everywhere once the caller has given up.
+
+What it costs: browsers can't speak raw gRPC, so you need **gRPC-Web** or **Connect** plus a proxy. You can't read the traffic without tools, and you can't test it with curl. gRPC is at its best **between your own backend services**.
+
+<Callout type="tip" title="tRPC for TypeScript projects">
+If your frontend and backend are both TypeScript in one repository, **tRPC** gives you the "call a function" feel and end-to-end type safety with no schema file and no code generation: the client imports the server's types directly. The trade-off is that it only really works for TypeScript clients you control.
+</Callout>
+
+## Webhooks: "don't call us, we'll call you"
+
+A **webhook** is an HTTP request that **another company's server sends to yours** when something happens: Stripe when a payment succeeds, GitHub when someone pushes, a form provider when a form is submitted. You give them a URL; they `POST` events to it.
+
+It's the server-to-server version of push, and it's simple to set up. Receiving webhooks *reliably* takes a few rules:
+
+- **Verify the signature.** Your webhook URL is public, so anyone can send fake events to it. Providers sign each request, usually with an **HMAC** of the raw body and a timestamp, using a secret you share. Check it before you trust anything:
+
+```js
+import crypto from "node:crypto";
+
+function verify(rawBody, header, secret) {
+  const [t, sig] = header.split(","); // e.g. "t=1760000000,v1=ab12…", format varies by provider
+  const timestamp = t.split("=")[1];
+  if (Math.abs(Date.now() / 1000 - timestamp) > 300) return false; // reject old (replayed) requests
+  const expected = crypto.createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex");
+  const given = sig.split("=")[1];
+  return given.length === expected.length && crypto.timingSafeEqual(Buffer.from(given), Buffer.from(expected));
+}
+```
+
+Use the **raw** body: re-serialising parsed JSON can change the bytes and break the signature. Use the provider's official library if there is one.
+- **Respond fast, work later.** Return `200` within a few seconds and put the actual work on a queue. If you're slow, the provider times out and sends the event again.
+- **Expect duplicates and disorder.** Providers retry on any failure, so you'll get the same event twice. Store each event ID and skip ones you've already processed. Events can also arrive out of order, so don't assume `payment.succeeded` comes after `payment.created`. When it matters, fetch the current state from their API.
+- **Don't rely on webhooks alone.** If your server is down long enough, the provider eventually gives up. A periodic job that reconciles against their API catches anything you missed.
+
+## Message queues and events: talking without waiting
+
+With a **message queue**, the sender doesn't call the receiver at all. It writes a message to the queue and carries on. Workers read messages and process them at their own pace. The two sides don't need to be running at the same time, or even know about each other.
+
+That changes what a failure means. Here's a checkout that calls five services. Switch some to a queue, then take a service down:
+
+<SyncAsyncDemo />
+
+Every synchronous call adds its latency to the user's wait, and its failures to theirs. Five services at 99.9% uptime each, called in a row, give a checkout that's up only 99.5% of the time: about 3.6 hours of failed checkouts a month instead of 43 minutes. Anything the user doesn't need to see the result of (emails, analytics, search indexing, recommendations) belongs on a queue.
+
+There are three common shapes:
+
+- **Work queues** (Amazon SQS, RabbitMQ, or job libraries like BullMQ). Each message is handled by **one** worker. Good for "do this job".
+- **Publish/subscribe** (SNS, Google Pub/Sub, Redis Pub/Sub). A message published to a topic is delivered to **every** subscriber. Good for "this happened, anyone who cares should know".
+- **Event logs** (Apache Kafka, Redpanda, Kinesis). Messages are appended to a durable, ordered log and **kept** for days or forever. Each consumer tracks its own position, so a new service can replay history from the start, and many teams can read the same stream independently.
+
+### The rules of async messaging
+
+- **"Exactly once" is a myth; plan for "at least once".** A worker can finish the job and crash before acknowledging it, so the message is delivered again. Make every handler **idempotent**: check whether the work was already done, or use a unique constraint so the second attempt is a harmless no-op.
+- **Order is limited.** Most queues don't guarantee order. Kafka guarantees it only within a **partition**, so send all messages for the same order or user to the same partition (by using their ID as the key).
+- **Have a dead-letter queue.** A message that fails every retry (a "poison message") shouldn't block the rest or retry forever. Move it aside after N attempts and alert someone.
+- **Save and publish together, with an outbox.** "Save the order, then publish `OrderPlaced`" can fail halfway, leaving an order nobody hears about. The **outbox pattern** writes the event to an `outbox` table *in the same database transaction* as the order, and a separate process publishes rows from that table to the queue.
+- **Watch queue depth and message age.** A queue that keeps growing means consumers can't keep up. Nothing errors, but work gets later and later.
+
+The cost of async is **visibility**. A request–response call either works or returns an error you can see. An event-driven flow spreads one user action across many services and minutes, so you need correlation IDs and distributed tracing to follow it.
+
+## Between services: things that apply to all of them
+
+- **Always set timeouts.** A call without a timeout can wait forever and hold resources the whole time. This is the most common cause of one slow service taking down others.
+- **Retry carefully.** Only retry idempotent operations, use exponential backoff with jitter, and retry at one layer, not every layer. [How to scale a system](/blog/how-to-scale-a-system/) has a demo of how retries multiply into a storm.
+- **Version your contracts.** Add fields rather than renaming or removing them, and keep old fields working until every client has moved. This applies equally to JSON, `.proto` files and event schemas.
+- **Know who's calling.** Between your own services, mutual TLS lets each side verify the other's certificate. [How HTTPS works](/blog/how-https-works/) explains certificates.
+
+## How to choose
+
+| | Style | Strengths | Costs | Use it for |
+|---|---|---|---|---|
+| **REST** | Sync, request–response | Simple, HTTP caching, universal tooling | Over- and under-fetching, chatty screens | Public APIs, most web backends |
+| **GraphQL** | Sync, client-shaped | Exact data in one request, typed schema | Server complexity, N+1, harder caching | Many clients with different needs |
+| **gRPC** | Sync (+ streaming) | Fast, strict contract, code generation | Needs a proxy for browsers, binary | Service-to-service |
+| **Real-time** (SSE, WebSockets) | Server push | Instant updates | Long-lived connections to run | Live UIs, see [Real-time on the web](/blog/real-time-on-the-web/) |
+| **Webhooks** | Async, provider pushes | Simple integration across companies | Security, retries, duplicates | Third-party events |
+| **Queues and events** | Async | Decoupling, absorbs spikes, survives outages | Eventual consistency, harder to trace | Background work, events between services |
+
+Most real systems use several at once. A typical setup: REST or GraphQL between the frontend and the backend, gRPC or REST between internal services, a queue for anything slow, webhooks in from payment and auth providers, and SSE or WebSockets for the live parts of the UI.
+
+<Callout type="info" title="The one-sentence version">
+Use a synchronous call (REST, GraphQL, gRPC) when the caller needs the answer right now, and a queue or event when it doesn't. Then plan for what every network boundary brings: timeouts, retries, duplicates and contracts that have to keep working while both sides change.
+</Callout>
